@@ -1,103 +1,45 @@
 
-function Nes() {
-
-  // state version, for savestates
-  this.stateVersion = 1;
+const Nes = (rom, battery, log) => {
   // ram
-  this.ram = new Uint8Array(0x800);
-  // cpu
-  this.cpu = new Cpu(this);
-  // ppu
-  this.ppu = new Ppu(this);
-  // apu
-  this.apu = new Apu(this);
-  // mapper / rom
-  this.mapper;
+  let ram = new Uint8Array(0x800);
 
-  // current controller state, changes externally
-  this.currentControl1State = 0;
-  this.currentControl2State = 0;
+  let cpu;
+  let ppu;
+  let apu;
 
-  // callbacks for onread(adr, val), onwrite(adr, val) and onexecute(adr, val)
-  this.onread = undefined;
-  this.onwrite = undefined;
-  this.onexecute = undefined;
+  // cycle timer, to sync cpu/ppu
+  let cycles = 0;
 
-  this.reset = function(hard) {
-    if(hard) {
-      for(let i = 0; i < this.ram.length; i++) {
-        this.ram[i] = 0;
-      }
-    }
-    this.cpu.reset();
-    this.ppu.reset();
-    this.apu.reset();
-    if(this.mapper) {
-      this.mapper.reset(hard);
-    }
+  // oam dma
+  let inDma = false;
+  let dmaTimer = 0;
+  let dmaBase = 0;
+  let dmaValue = 0;
 
-    // cycle timer, to sync cpu/ppu
-    this.cycles = 0;
+  // controllers
+  let latchedControl1State = 0;
+  let latchedControl2State = 0;
+  let controllerLatched = false;
 
-    // oam dma
-    this.inDma = false;
-    this.dmaTimer = 0;
-    this.dmaBase = 0;
-    this.dmaValue = 0;
+  // irq sources
+  let mapperIrqWanted = false;
+  let frameIrqWanted = false;
+  let dmcIrqWanted = false;
 
-    // controllers
-    this.latchedControl1State = 0;
-    this.latchedControl2State = 0;
-    this.controllerLatched = false;
-
-    // irq sources
-    this.mapperIrqWanted = false;
-    this.frameIrqWanted = false;
-    this.dmcIrqWanted = false;
-  }
-  this.reset(true);
-  this.saveVars = [
-    "ram", "cycles", "inDma", "dmaTimer", "dmaBase", "dmaValue",
-    "latchedControl1State", "latchedControl2State", "controllerLatched",
-    "mapperIrqWanted", "frameIrqWanted", "dmcIrqWanted"
-  ];
-
-  this.loadRom = function(rom) {
-    if(rom.length < 0x10) {
-      log("Invalid rom loaded");
-      return false;
-    }
-    if(
-      rom[0] !== 0x4e || rom[1] !== 0x45 ||
-      rom[2] !== 0x53 || rom[3] !== 0x1a
-    ) {
-      log("Invalid rom loaded");
-      return false;
-    }
-    let header = this.parseHeader(rom);
-    if(rom.length < header.chrBase + 0x2000 * header.chrBanks) {
-      log("Rom file is missing data");
-      return false;
-    }
-    if(mappers[header.mapper] === undefined) {
-      log("Unsupported mapper: " + header.mapper);
-      return false;
-    } else {
-      try {
-        this.mapper = new mappers[header.mapper](this, rom, header);
-      } catch(e) {
-        log("Rom load error: " + e);
-        return false;
-      }
-    }
-    log(
-      "Loaded " + this.mapper.name + " rom: " + this.mapper.h.banks +
-      " PRG bank(s), " + this.mapper.h.chrBanks + " CHR bank(s)"
-    );
-    return true;
+  if (rom.length < 0x10) {
+    log("Invalid rom loaded");
+    return false;
   }
 
-  this.parseHeader = function(rom) {
+  if (
+    rom[0] !== 0x4e || rom[1] !== 0x45 ||
+    rom[2] !== 0x53 || rom[3] !== 0x1a
+  ) {
+    log("Invalid rom loaded");
+    return false;
+  }
+
+  const parseHeader = (rom) => {
     let o = {
       banks: rom[4],
       chrBanks: rom[5],
@@ -118,23 +60,23 @@ function Nes() {
     return o;
   }
 
-  this.getPixels = function(data) {
-    this.ppu.setFrame(data);
+  const getPixels = (data) => {
+    ppu.setFrame(data);
   }
 
-  this.getSamples = function(data, count) {
+  const getSamples = (data, count) => {
     // apu returns 29780 or 29781 samples (0 - 1) for a frame
     // we need count values (0 - 1)
-    let samples = this.apu.getOutput();
+    let samples = apu.getOutput();
     let runAdd = (29780 / count);
     let total = 0;
     let inputPos = 0;
     let running = 0;
-    for(let i = 0; i < count; i++) {
+    for (let i = 0; i < count; i++) {
       running += runAdd;
       let total = 0;
       let avgCount = running & 0xffff;
-      for(let j = inputPos; j < inputPos + avgCount; j++) {
+      for (let j = inputPos; j < inputPos + avgCount; j++) {
         total += samples[1][j];
       }
       data[i] = total / avgCount;
@@ -143,287 +85,183 @@ function Nes() {
     }
   }
 
-  this.cycle = function() {
-    if(this.cycles === 0) {
-      this.cycles = 3;
+  const cycle = (currentControl1State, currentControl2State) => {
+    if (cycles === 0) {
+      cycles = 3;
       // do a cpu and apu cycle every 3 ppu cycles
 
       // handle controller latch
-      if(this.controllerLatched) {
-        this.latchedControl1State = this.currentControl1State;
-        this.latchedControl2State = this.currentControl2State;
+      if (controllerLatched) {
+        latchedControl1State = currentControl1State;
+        latchedControl2State = currentControl2State;
       }
 
       // handle irq
-      if(this.mapperIrqWanted || this.frameIrqWanted || this.dmcIrqWanted) {
-        this.cpu.irqWanted = true;
+      if (mapperIrqWanted || frameIrqWanted || dmcIrqWanted) {
+        cpu.requestIrq();
       } else {
-        this.cpu.irqWanted = false;
+        cpu.requestIrq(false);
       }
 
-      if(!this.inDma) {
-        if(this.onexecute && this.cpu.cyclesLeft === 0) {
-          this.onexecute(this.cpu.br[0], this.peak(this.cpu.br[0]));
-        }
-        this.cpu.cycle();
+      if (!inDma) {
+        cpu.cycle();
       } else {
         // handle dma
-        if(this.dmaTimer > 0) {
-          if((this.dmaTimer & 1) === 0) {
+        if (dmaTimer > 0) {
+          if ((dmaTimer & 1) === 0) {
             // even cycles are write to ppu
-            this.ppu.write(4, this.dmaValue);
+            ppu.write(4, dmaValue);
           } else {
             // odd cycles are read for value
-            this.dmaValue = this.read(
-              this.dmaBase + ((this.dmaTimer / 2) & 0xff)
+            dmaValue = read(
+              dmaBase + ((dmaTimer / 2) & 0xff)
             );
           }
         }
-        this.dmaTimer++;
-        if(this.dmaTimer === 513) {
-          this.dmaTimer = 0;
-          this.inDma = false;
+        dmaTimer++;
+        if (dmaTimer === 513) {
+          dmaTimer = 0;
+          inDma = false;
         }
       }
 
-      this.apu.cycle();
+      apu.cycle();
     }
-    this.ppu.cycle();
-    this.cycles--;
+    ppu.cycle();
+    cycles--;
   }
 
-  this.runFrame = function() {
+  const runFrame = (currentControl1State, currentControl2State) => {
     do {
-      this.cycle()
-    } while(!(this.ppu.line === 240 && this.ppu.dot === 0));
-  }
-
-  // peak
-  this.peak = function(adr) {
-    adr &= 0xffff;
-    if(adr < 0x2000) {
-      // ram
-      return this.ram[adr & 0x7ff];
-    }
-    if(adr < 0x4000) {
-      // ppu ports
-      return this.ppu.peak(adr & 0x7);
-    }
-    if(adr < 0x4020) {
-      // apu/misc ports
-      if(adr === 0x4014) {
-        return 0; // not readable
-      }
-      if(adr === 0x4016) {
-        let ret = this.latchedControl1State & 1;
-        return ret | 0x40;
-      }
-      if(adr === 0x4017) {
-        let ret = this.latchedControl2State & 1;
-        return ret | 0x40;
-      }
-      return this.apu.peak(adr);
-    }
-    return this.mapper.peak(adr);
+      cycle(currentControl1State, currentControl2State)
+    } while (!ppu.endOfFrame());
   }
 
   // cpu read
-  this.read = function(adr) {
+  const read = (adr) => {
     adr &= 0xffff;
-    if(this.onread) {
-      this.onread(adr, this.peak(adr));
-    }
 
-    if(adr < 0x2000) {
+    if (adr < 0x2000) {
       // ram
-      return this.ram[adr & 0x7ff];
-    }
-    if(adr < 0x4000) {
+      return ram[adr & 0x7ff];
+    } else if (adr < 0x4000) {
       // ppu ports
-      return this.ppu.read(adr & 0x7);
-    }
-    if(adr < 0x4020) {
-      // apu/misc ports
-      if(adr === 0x4014) {
-        return 0; // not readable
-      }
-      if(adr === 0x4016) {
-        let ret = this.latchedControl1State & 1;
-        this.latchedControl1State >>= 1;
-        this.latchedControl1State |= 0x80; // set bit 7
+      return ppu.read(adr & 0x7);
+    } else if (adr < 0x4020) {
+      if (adr === 0x4016) {
+        let ret = latchedControl1State & 1;
+        latchedControl1State >>= 1;
+        latchedControl1State |= 0x80; // set bit 7
         // supposed to be open bus, but is usually the high byte of the address
         // which is 0x4016, so open bus would be 0x40
         return ret | 0x40;
-      }
-      if(adr === 0x4017) {
-        let ret = this.latchedControl2State & 1;
-        this.latchedControl2State >>= 1;
-        this.latchedControl2State |= 0x80; // set bit 7
+      } else if (adr === 0x4017) {
+        let ret = latchedControl2State & 1;
+        latchedControl2State >>= 1;
+        latchedControl2State |= 0x80; // set bit 7
         // same as 0x4016
         return ret | 0x40;
+      } else if (adr === 0x4015) {
+        const flags = apu.getFlags();
+        flags |= frameIrqWanted ? 0x40 : 0;
+        flags |= dmcIrqWanted ? 0x80 : 0;
+        frameIrqWanted = false;
+        return flags;
       }
-      return this.apu.read(adr);
+      return 0;
     }
-    return this.mapper.read(adr);
+    return mapper.read(adr);
   }
 
   // cpu write
-  this.write = function(adr, value) {
+  const write = (adr, value) => {
     adr &= 0xffff;
-    if(this.onwrite) {
-      this.onwrite(adr, value);
-    }
-    if(adr < 0x2000) {
+
+    if (adr < 0x2000) {
       // ram
-      this.ram[adr & 0x7ff] = value;
+      ram[adr & 0x7ff] = value;
       return;
     }
-    if(adr < 0x4000) {
+    if (adr < 0x4000) {
       // ppu ports
-      this.ppu.write(adr & 0x7, value);
+      ppu.write(adr & 0x7, value);
       return;
     }
-    if(adr < 0x4020) {
+    if (adr < 0x4020) {
       // apu/misc ports
-      if(adr === 0x4014) {
-        this.inDma = true;
-        this.dmaBase = value << 8;
+      if (adr === 0x4014) {
+        inDma = true;
+        dmaBase = value << 8;
         return;
       }
-      if(adr === 0x4016) {
-        if((value & 0x01) > 0) {
-          this.controllerLatched = true;
+      if (adr === 0x4016) {
+        if ((value & 0x01) > 0) {
+          controllerLatched = true;
         } else {
-          this.controllerLatched = false;
+          controllerLatched = false;
         }
         return;
       }
-      this.apu.write(adr, value);
+      apu.write(adr, value);
       return;
     }
-    this.mapper.write(adr, value);
-  }
-
-  // print bytes and words nicely
-  this.getByteRep = function(val) {
-    return ("0" + val.toString(16)).slice(-2);
-  }
-
-  this.getWordRep = function(val) {
-    return ("000" + val.toString(16)).slice(-4);
-  }
-
-  // get controls in
-  this.setButtonPressed = function(player, button) {
-    if(player === 1) {
-      this.currentControl1State |= (1 << button);
-    } else if(player === 2) {
-      this.currentControl2State |= (1 << button);
-    }
-  }
-
-  this.setButtonReleased = function(player, button) {
-    if(player === 1) {
-      this.currentControl1State &= (~(1 << button)) & 0xff;
-    } else if(player === 2) {
-      this.currentControl2State &= (~(1 << button)) & 0xff;
-    }
-  }
-
-  this.INPUT = {
-    A: 0,
-    B: 1,
-    SELECT: 2,
-    START: 3,
-    UP: 4,
-    DOWN: 5,
-    LEFT: 6,
-    RIGHT: 7
+    mapper.write(adr, value);
   }
 
   // save states, battery saves
-  this.getBattery = function() {
-    if(this.mapper.h.battery) {
-      return {data: this.mapper.getBattery()};
+  const getBattery = () => {
+    if (mapper.h.battery) {
+      return { data: mapper.getBattery() };
     }
     return undefined;
   }
+  
+  let header = parseHeader(rom);
 
-  this.setBattery = function(data) {
-    if(this.mapper.h.battery) {
-      return this.mapper.setBattery(data.data);
-    }
-    return true;
+  if (rom.length < header.chrBase + 0x2000 * header.chrBanks) {
+    log("Rom file is missing data");
+    return false;
   }
 
-  this.getState = function() {
-    let cpuObj = this.getObjState(this.cpu);
-    let ppuObj = this.getObjState(this.ppu);
-    let apuObj = this.getObjState(this.apu);
-    let mapperObj = this.getObjState(this.mapper);
-    let headerObj = this.getObjState(this.mapper.h);
-    let final = this.getObjState(this);
-    final["cpu"] = cpuObj;
-    final["ppu"] = ppuObj;
-    final["apu"] = apuObj;
-    final["mapper"] = mapperObj;
-    final["header"] = headerObj;
-    final["mapperVersion"] = this.mapper.version;
-    final["version"] = this.stateVersion;
-    return final;
-  }
-
-  this.setState = function(obj) {
-    if(obj.version !== this.stateVersion || obj.mapperVersion !== this.mapper.version) {
+  if (mappers[header.mapper] === undefined) {
+    log("Unsupported mapper: " + header.mapper);
+    return false;
+  } else {
+    try {
+      mapper = new mappers[header.mapper](rom, header);
+    } catch (e) {
+      log("Rom load error: " + e);
       return false;
     }
-    // check header
-    if(!this.checkObjState(this.mapper.h, obj.header)) {
-      return false;
-    }
-    this.setObjState(this.cpu, obj.cpu);
-    this.setObjState(this.ppu, obj.ppu);
-    this.setObjState(this.apu, obj.apu);
-    this.setObjState(this.mapper, obj.mapper);
-    this.setObjState(this, obj);
-    return true;
   }
 
-  this.getObjState = function(obj) {
-    let ret = {};
-    for(let i = 0; i < obj.saveVars.length; i++) {
-      let name = obj.saveVars[i];
-      let val = obj[name];
-      if(val instanceof Uint8Array || val instanceof Uint16Array) {
-        ret[name] = Array.prototype.slice.call(val);
-      } else {
-        ret[name] = val;
-      }
-    }
-    return ret;
+  console.log(mapper);
+
+  log(
+    "Loaded " + mapper.name + " rom: " + mapper.h.banks +
+    " PRG bank(s), " + mapper.h.chrBanks + " CHR bank(s)"
+  );
+
+  if (mapper.h.battery && battery) {
+    return mapper.setBattery(battery);
   }
 
-  this.setObjState = function(obj, save) {
-    for(let i = 0; i < obj.saveVars.length; i++) {
-      let name = obj.saveVars[i];
-      let val = obj[name];
-      if(val instanceof Uint8Array) {
-        obj[name] = new Uint8Array(save[name]);
-      } else if(val instanceof Uint16Array) {
-        obj[name] = new Uint16Array(save[name]);
-      } else {
-        obj[name] = save[name];
-      }
-    }
+  function requestDmcIrq(requested = true) {
+    dmcIrqWanted = requested;
   }
 
-  this.checkObjState = function(obj, save) {
-    for(let i = 0; i < obj.saveVars.length; i++) {
-      let name = obj.saveVars[i];
-      if(obj[name] !== save[name]) {
-        return false;
-      }
-    }
-    return true;
+  function requestFrameIrq(requested = true) {
+    frameIrqWanted = requested;
   }
+
+  cpu = Cpu(read, write, read(0xfffc) | (read(0xfffd) << 8));
+  ppu = Ppu(cpu.requestNmi, (adr, val) => mapper.ppuWrite(adr, val), adr => mapper.ppuRead(adr));
+  apu = Apu(read, requestDmcIrq, requestFrameIrq);
+
+  return {
+    runFrame,
+    getSamples,
+    getPixels,
+    getBattery,
+  };
 }

@@ -2,7 +2,7 @@
 function NsfPlayer() {
 
   this.cpu = new Cpu(this);
-  this.apu = new Apu(this);
+  this.apu = Apu(this);
 
   this.ram = new Uint8Array(0x800);
 
@@ -111,7 +111,7 @@ function NsfPlayer() {
       this.ram[i] = 0;
     }
     this.playReturned = true;
-    this.apu.reset();
+    this.apu = Apu(this);
     this.cpu.reset();
     this.mapper.reset();
     this.frameIrqWanted = false;

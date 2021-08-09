@@ -1,9 +1,7 @@
 
-mappers[4] = function(nes, rom, header) {
+mappers[4] = function(rom, header) {
   this.name = "MMC3";
   this.version = 1;
-
-  this.nes = nes;
 
   this.rom = rom;
 

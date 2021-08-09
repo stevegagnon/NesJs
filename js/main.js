@@ -1,11 +1,13 @@
 
-let nes = new Nes();
+let nes;
 let audioHandler = new AudioHandler();
 let paused = false;
 let loaded = false;
 let pausedInBg = false;
 let loopId = 0;
 let loadedName = "";
+let currentControl1State = 0;
+let currentControl2State = 0;
 
 let c = el("output");
 c.width = 256;
@@ -13,69 +15,81 @@ c.height = 240;
 let ctx = c.getContext("2d");
 let imgData = ctx.createImageData(256, 240);
 
+const INPUT = {
+  A: 0,
+  B: 1,
+  SELECT: 2,
+  START: 3,
+  UP: 4,
+  DOWN: 5,
+  LEFT: 6,
+  RIGHT: 7
+}
+
+
 let controlsP1 = {
-  arrowright: nes.INPUT.RIGHT,
-  arrowleft: nes.INPUT.LEFT,
-  arrowdown: nes.INPUT.DOWN,
-  arrowup: nes.INPUT.UP,
-  enter: nes.INPUT.START,
-  shift: nes.INPUT.SELECT,
-  a: nes.INPUT.B,
-  z: nes.INPUT.A
+  arrowright: INPUT.RIGHT,
+  arrowleft: INPUT.LEFT,
+  arrowdown: INPUT.DOWN,
+  arrowup: INPUT.UP,
+  enter: INPUT.START,
+  shift: INPUT.SELECT,
+  a: INPUT.B,
+  z: INPUT.A
 }
 let controlsP2 = {
-  l: nes.INPUT.RIGHT,
-  j: nes.INPUT.LEFT,
-  k: nes.INPUT.DOWN,
-  i: nes.INPUT.UP,
-  p: nes.INPUT.START,
-  o: nes.INPUT.SELECT,
-  t: nes.INPUT.B,
-  g: nes.INPUT.A
+  l: INPUT.RIGHT,
+  j: INPUT.LEFT,
+  k: INPUT.DOWN,
+  i: INPUT.UP,
+  p: INPUT.START,
+  o: INPUT.SELECT,
+  t: INPUT.B,
+  g: INPUT.A
 }
 
 zip.workerScriptsPath = "lib/";
 zip.useWebWorkers = false;
 
-el("rom").onchange = function(e) {
+el("rom").onchange = function (e) {
   audioHandler.resume();
   let freader = new FileReader();
-  freader.onload = function() {
+  freader.onload = function () {
     let buf = freader.result;
-    if(e.target.files[0].name.slice(-4) === ".zip") {
+    if (e.target.files[0].name.slice(-4) === ".zip") {
       // use zip.js to read the zip
       let blob = new Blob([buf]);
-      zip.createReader(new zip.BlobReader(blob), function(reader) {
-        reader.getEntries(function(entries) {
-          if(entries.length) {
+      zip.createReader(new zip.BlobReader(blob), function (reader) {
+        reader.getEntries(function (entries) {
+          if (entries.length) {
             let found = false;
-            for(let i = 0; i < entries.length; i++) {
+            for (let i = 0; i < entries.length; i++) {
               let name = entries[i].filename;
-              if(name.slice(-4) !== ".nes" && name.slice(-4) !== ".NES") {
+              if (name.slice(-4) !== ".nes" && name.slice(-4) !== ".NES") {
                 continue;
               }
               found = true;
               log("Loaded \"" + name + "\" from zip");
-              entries[i].getData(new zip.BlobWriter(), function(blob) {
+              entries[i].getData(new zip.BlobWriter(), function (blob) {
                 let breader = new FileReader();
-                breader.onload = function() {
+                breader.onload = function () {
                   let rbuf = breader.result;
                   let arr = new Uint8Array(rbuf);
                   loadRom(arr, name);
-                  reader.close(function() {});
+                  reader.close(function () { });
                 }
                 breader.readAsArrayBuffer(blob);
-              }, function(curr, total) {});
+              }, function (curr, total) { });
               break;
             }
-            if(!found) {
+            if (!found) {
               log("No .nes file found in zip");
             }
           } else {
             log("Zip file was empty");
           }
         });
-      }, function(err) {
+      }, function (err) {
         log("Failed to read zip: " + err);
       });
     } else {
@@ -89,8 +103,8 @@ el("rom").onchange = function(e) {
   freader.readAsArrayBuffer(e.target.files[0]);
 }
 
-el("pause").onclick = function(e) {
-  if(paused && loaded) {
+el("pause").onclick = function (e) {
+  if (paused && loaded) {
     loopId = requestAnimationFrame(update);
     audioHandler.start();
     paused = false;
@@ -103,51 +117,38 @@ el("pause").onclick = function(e) {
   }
 }
 
-el("reset").onclick = function(e) {
-  nes.reset(false);
-}
-
-el("hardreset").onclick = function(e) {
-  nes.reset(true);
-}
-
-el("runframe").onclick = function(e) {
-  if(loaded) {
+el("runframe").onclick = function (e) {
+  if (loaded) {
     runFrame();
   }
 }
 
-document.onvisibilitychange = function(e) {
-  if(document.hidden) {
+document.onvisibilitychange = function (e) {
+  if (document.hidden) {
     pausedInBg = false;
-    if(!paused && loaded) {
+    if (!paused && loaded) {
       el("pause").click();
       pausedInBg = true;
     }
   } else {
-    if(pausedInBg && loaded) {
+    if (pausedInBg && loaded) {
       el("pause").click();
       pausedInBg = false;
     }
   }
 }
 
-window.onpagehide = function(e) {
+window.onpagehide = function (e) {
   saveBatteryForRom();
 }
 
 function loadRom(rom, name) {
   saveBatteryForRom();
-  if(nes.loadRom(rom)) {
-    // load the roms battery data
-    let data = localStorage.getItem(name + "_battery");
-    if(data) {
-      let obj = JSON.parse(data);
-      nes.setBattery(obj);
-      log("Loaded battery");
-    }
-    nes.reset(true);
-    if(!loaded && !paused) {
+  let data = localStorage.getItem(name + "_battery");
+  const battery = data ? JSON.parse(data) : null;
+  nes = Nes(rom, battery, log);
+  if (nes) {
+    if (!loaded && !paused) {
       loopId = requestAnimationFrame(update);
       audioHandler.start();
     }
@@ -158,13 +159,13 @@ function loadRom(rom, name) {
 
 function saveBatteryForRom() {
   // save the loadedName's battery data
-  if(loaded) {
+  if (loaded) {
     let data = nes.getBattery();
-    if(data) {
+    if (data) {
       try {
         localStorage.setItem(loadedName + "_battery", JSON.stringify(data));
         log("Saved battery");
-      } catch(e) {
+      } catch (e) {
         log("Failed to save battery: " + e);
       }
     }
@@ -177,7 +178,7 @@ function update() {
 }
 
 function runFrame() {
-  nes.runFrame();
+  nes.runFrame(currentControl1State, currentControl2State);
   nes.getSamples(audioHandler.sampleBuffer, audioHandler.samplesPerFrame);
   audioHandler.nextBuffer();
   nes.getPixels(imgData.data);
@@ -193,46 +194,43 @@ function el(id) {
   return document.getElementById(id);
 }
 
-window.onkeydown = function(e) {
-  if(controlsP1[e.key.toLowerCase()] !== undefined) {
-    nes.setButtonPressed(1, controlsP1[e.key.toLowerCase()]);
+window.onkeydown = function (e) {
+  if (controlsP1[e.key.toLowerCase()] !== undefined) {
+    setButtonPressed(1, controlsP1[e.key.toLowerCase()]);
     e.preventDefault();
   }
-  if(controlsP2[e.key.toLowerCase()] !== undefined) {
-    nes.setButtonPressed(2, controlsP2[e.key.toLowerCase()]);
+  if (controlsP2[e.key.toLowerCase()] !== undefined) {
+    setButtonPressed(2, controlsP2[e.key.toLowerCase()]);
     e.preventDefault();
   }
 }
 
-window.onkeyup = function(e) {
-  if(controlsP1[e.key.toLowerCase()] !== undefined) {
-    nes.setButtonReleased(1, controlsP1[e.key.toLowerCase()]);
+window.onkeyup = function (e) {
+  if (controlsP1[e.key.toLowerCase()] !== undefined) {
+    setButtonReleased(1, controlsP1[e.key.toLowerCase()]);
     e.preventDefault();
   }
-  if(controlsP2[e.key.toLowerCase()] !== undefined) {
-    nes.setButtonReleased(2, controlsP2[e.key.toLowerCase()]);
+  if (controlsP2[e.key.toLowerCase()] !== undefined) {
+    setButtonReleased(2, controlsP2[e.key.toLowerCase()]);
     e.preventDefault();
   }
-  if(e.key.toLowerCase() === "m" && loaded) {
-    let saveState = nes.getState();
-    try {
-      localStorage.setItem(loadedName + "_savestate", JSON.stringify(saveState));
-      log("Saved state");
-    } catch(e) {
-      log("Failed to save state: " + e);
-    }
+}
+
+
+
+// get controls in
+const setButtonPressed = (player, button) => {
+  if (player === 1) {
+    currentControl1State |= (1 << button);
+  } else if (player === 2) {
+    currentControl2State |= (1 << button);
   }
-  if(e.key.toLowerCase() === "n" && loaded) {
-    let data = localStorage.getItem(loadedName + "_savestate");
-    if(data) {
-      let obj = JSON.parse(data);
-      if(nes.setState(obj)) {
-        log("Loaded state");
-      } else {
-        log("Failed to load state");
-      }
-    } else {
-      log("No state saved yet");
-    }
+}
+
+const setButtonReleased = (player, button) => {
+  if (player === 1) {
+    currentControl1State &= (~(1 << button)) & 0xff;
+  } else if (player === 2) {
+    currentControl2State &= (~(1 << button)) & 0xff;
   }
 }

@@ -22,8 +22,25 @@ const Y = 2;
 const SP = 3;
 const PC = 0;
 
-
-// instruction maps
+const cycles = [
+  //0x1 x2 x3 x4 x5 x6 x7 x8 x9 xa xb xc xd xe xf
+  7, 6, 2, 8, 3, 3, 5, 5, 3, 2, 2, 2, 4, 4, 6, 6, //0x
+  2, 5, 2, 8, 4, 4, 6, 6, 2, 4, 2, 7, 4, 4, 7, 7, //1x
+  6, 6, 2, 8, 3, 3, 5, 5, 4, 2, 2, 2, 4, 4, 6, 6, //2x
+  2, 5, 2, 8, 4, 4, 6, 6, 2, 4, 2, 7, 4, 4, 7, 7, //3x
+  6, 6, 2, 8, 3, 3, 5, 5, 3, 2, 2, 2, 3, 4, 6, 6, //4x
+  2, 5, 2, 8, 4, 4, 6, 6, 2, 4, 2, 7, 4, 4, 7, 7, //5x
+  6, 6, 2, 8, 3, 3, 5, 5, 4, 2, 2, 2, 5, 4, 6, 6, //6x
+  2, 5, 2, 8, 4, 4, 6, 6, 2, 4, 2, 7, 4, 4, 7, 7, //7x
+  2, 6, 2, 6, 3, 3, 3, 3, 2, 2, 2, 2, 4, 4, 4, 4, //8x
+  2, 6, 2, 6, 4, 4, 4, 4, 2, 5, 2, 5, 5, 5, 5, 5, //9x
+  2, 6, 2, 6, 3, 3, 3, 3, 2, 2, 2, 2, 4, 4, 4, 4, //ax
+  2, 5, 2, 5, 4, 4, 4, 4, 2, 4, 2, 4, 4, 4, 4, 4, //bx
+  2, 6, 2, 8, 3, 3, 5, 5, 2, 2, 2, 2, 4, 4, 6, 6, //cx
+  2, 5, 2, 8, 4, 4, 6, 6, 2, 4, 2, 7, 4, 4, 7, 7, //dx
+  2, 6, 2, 8, 3, 3, 5, 5, 2, 2, 2, 2, 4, 4, 6, 6, //ex
+  2, 5, 2, 8, 4, 4, 6, 6, 2, 4, 2, 7, 4, 4, 7, 7, //fx
+];
 
 const addressingModes = [
   //x0 x1   x2   x3   x4   x5   x6   x7   x8   x9   xa   xb   xc   xd   xe   xf
@@ -45,27 +62,9 @@ const addressingModes = [
   REL, IZYr, IMP, IZY, ZPX, ZPX, ZPX, ZPX, IMP, ABYr, IMP, ABY, ABXr, ABXr, ABX, ABX, //fx
 ];
 
-const cycles = [
-  //0x1 x2 x3 x4 x5 x6 x7 x8 x9 xa xb xc xd xe xf
-  7, 6, 2, 8, 3, 3, 5, 5, 3, 2, 2, 2, 4, 4, 6, 6, //0x
-  2, 5, 2, 8, 4, 4, 6, 6, 2, 4, 2, 7, 4, 4, 7, 7, //1x
-  6, 6, 2, 8, 3, 3, 5, 5, 4, 2, 2, 2, 4, 4, 6, 6, //2x
-  2, 5, 2, 8, 4, 4, 6, 6, 2, 4, 2, 7, 4, 4, 7, 7, //3x
-  6, 6, 2, 8, 3, 3, 5, 5, 3, 2, 2, 2, 3, 4, 6, 6, //4x
-  2, 5, 2, 8, 4, 4, 6, 6, 2, 4, 2, 7, 4, 4, 7, 7, //5x
-  6, 6, 2, 8, 3, 3, 5, 5, 4, 2, 2, 2, 5, 4, 6, 6, //6x
-  2, 5, 2, 8, 4, 4, 6, 6, 2, 4, 2, 7, 4, 4, 7, 7, //7x
-  2, 6, 2, 6, 3, 3, 3, 3, 2, 2, 2, 2, 4, 4, 4, 4, //8x
-  2, 6, 2, 6, 4, 4, 4, 4, 2, 5, 2, 5, 5, 5, 5, 5, //9x
-  2, 6, 2, 6, 3, 3, 3, 3, 2, 2, 2, 2, 4, 4, 4, 4, //ax
-  2, 5, 2, 5, 4, 4, 4, 4, 2, 4, 2, 4, 4, 4, 4, 4, //bx
-  2, 6, 2, 8, 3, 3, 5, 5, 2, 2, 2, 2, 4, 4, 6, 6, //cx
-  2, 5, 2, 8, 4, 4, 6, 6, 2, 4, 2, 7, 4, 4, 7, 7, //dx
-  2, 6, 2, 8, 3, 3, 5, 5, 2, 2, 2, 2, 4, 4, 6, 6, //ex
-  2, 5, 2, 8, 4, 4, 6, 6, 2, 4, 2, 7, 4, 4, 7, 7, //fx
-];
+// read ? read(0xfffc) | (read(0xfffd) << 8) : 0
 
-function Cpu(read, write, initialPC = 0) {
+const Cpu = (read, write, initialPC = 0) => {
   // registers
   const r = new Uint8Array([0, 0, 0, 0xfd]);
   const br = new Uint16Array([initialPC]);
@@ -85,10 +84,7 @@ function Cpu(read, write, initialPC = 0) {
   // cycles left
   let cyclesLeft = 7;
 
-
-  // function table is at bottom
-
-  function cycle() {
+  const cycle = () => {
     if (cyclesLeft === 0) {
       // read the instruction byte and get the info
       let instr = read(br[PC]++);
@@ -115,7 +111,7 @@ function Cpu(read, write, initialPC = 0) {
   }
 
   // create a P value from the flags
-  function getP(bFlag) {
+  const getP = (bFlag) => {
     let value = 0;
 
     value |= n ? 0x80 : 0;
@@ -131,7 +127,7 @@ function Cpu(read, write, initialPC = 0) {
   }
 
   // set the flags according to a P value
-  function setP(value) {
+  const setP = (value) => {
     n = (value & 0x80) > 0;
     v = (value & 0x40) > 0;
     d = (value & 0x08) > 0;
@@ -141,21 +137,21 @@ function Cpu(read, write, initialPC = 0) {
   }
 
   // set Z (zero flag) and N (overflow flag) according to the value
-  function setZandN(value) {
+  const setZandN = (value) => {
     value &= 0xff;
     z = value === 0;
     n = value > 0x7f;
   }
 
   // get a singed value (-128 - 127) out of a unsigned one (0 - 255)
-  function getSigned(value) {
+  const getSigned = (value) => {
     if (value > 127) {
       return -(256 - value);
     }
     return value;
   }
 
-  function doBranch(test, rel) {
+  const doBranch = (test, rel) => {
     if (test) {
       // taken branch: 1 extra cycle
       cyclesLeft++;
@@ -169,7 +165,7 @@ function Cpu(read, write, initialPC = 0) {
 
   // after fetching the instruction byte, this gets the address to affect
   // pc is pointing to byte after instruction byte
-  function getAdr(mode) {
+  const getAdr = (mode) => {
     switch (mode) {
       case IMP: {
         // implied, wont use an address
@@ -267,30 +263,30 @@ function Cpu(read, write, initialPC = 0) {
 
   // instruction functions
 
-  function uni(adr, num) {
+  const uni = (adr, num) => {
     // unimplemented instruction
     log("unimplemented instruction " + mem.getByteRep(num));
   }
 
-  function ora(adr) {
+  const ora = (adr) => {
     // ORs A with the value, set Z and N
     r[A] |= read(adr);
     setZandN(r[A]);
   }
 
-  function and(adr) {
+  const and = (adr) => {
     // ANDs A with the value, set Z and N
     r[A] &= read(adr);
     setZandN(r[A]);
   }
 
-  function eor(adr) {
+  const eor = (adr) => {
     // XORs A with the value, set Z and N
     r[A] ^= read(adr);
     setZandN(r[A]);
   }
 
-  function adc(adr) {
+  const adc = (adr) => {
     // adds the value + C to A, set C, V, Z and N
     let value = read(adr);
     let result = r[A] + value + (c ? 1 : 0);
@@ -303,7 +299,7 @@ function Cpu(read, write, initialPC = 0) {
     setZandN(r[A]);
   }
 
-  function sbc(adr) {
+  const sbc = (adr) => {
     // subtracts the value + !C from A, set C, V, Z and N
     let value = read(adr) ^ 0xff;
     let result = r[A] + value + (c ? 1 : 0);
@@ -316,7 +312,7 @@ function Cpu(read, write, initialPC = 0) {
     setZandN(r[A]);
   }
 
-  function cmp(adr) {
+  const cmp = (adr) => {
     // sets C, Z and N according to what A - value would do
     let value = read(adr) ^ 0xff;
     let result = r[A] + value + 1;
@@ -324,7 +320,7 @@ function Cpu(read, write, initialPC = 0) {
     setZandN(result & 0xff);
   }
 
-  function cpx(adr) {
+  const cpx = (adr) => {
     // sets C, Z and N according to what X - value would do
     let value = read(adr) ^ 0xff;
     let result = r[X] + value + 1;
@@ -332,7 +328,7 @@ function Cpu(read, write, initialPC = 0) {
     setZandN(result & 0xff);
   }
 
-  function cpy(adr) {
+  const cpy = (adr) => {
     // sets C, Z and N according to what Y - value would do
     let value = read(adr) ^ 0xff;
     let result = r[Y] + value + 1;
@@ -340,45 +336,45 @@ function Cpu(read, write, initialPC = 0) {
     setZandN(result & 0xff);
   }
 
-  function dec(adr) {
+  const dec = (adr) => {
     // decrements a memory location, set Z and N
     let result = (read(adr) - 1) & 0xff;
     setZandN(result);
     write(adr, result);
   }
 
-  function dex(adr) {
+  const dex = (adr) => {
     // decrements X, set Z and N
     r[X]--;
     setZandN(r[X]);
   }
 
-  function dey(adr) {
+  const dey = (adr) => {
     // decrements Y, set Z and N
     r[Y]--;
     setZandN(r[Y]);
   }
 
-  function inc(adr) {
+  const inc = (adr) => {
     // increments a memory location, set Z and N
     let result = (read(adr) + 1) & 0xff;
     setZandN(result);
     write(adr, result);
   }
 
-  function inx(adr) {
+  const inx = (adr) => {
     // increments X, set Z and N
     r[X]++;
     setZandN(r[X]);
   }
 
-  function iny(adr) {
+  const iny = (adr) => {
     // increments Y, set Z and N
     r[Y]++;
     setZandN(r[Y]);
   }
 
-  function asla(adr) {
+  const asla = (adr) => {
     // shifts A left 1, set C, Z and N
     let result = r[A] << 1;
     c = result > 0xff;
@@ -386,7 +382,7 @@ function Cpu(read, write, initialPC = 0) {
     r[A] = result;
   }
 
-  function asl(adr) {
+  const asl = (adr) => {
     // shifts a memory location left 1, set C, Z and N
     let result = read(adr) << 1;
     c = result > 0xff;
@@ -394,7 +390,7 @@ function Cpu(read, write, initialPC = 0) {
     write(adr, result);
   }
 
-  function rola(adr) {
+  const rola = (adr) => {
     // rolls A left 1, rolls C in, set C, Z and N
     let result = (r[A] << 1) | (c ? 1 : 0);
     c = result > 0xff;
@@ -402,7 +398,7 @@ function Cpu(read, write, initialPC = 0) {
     r[A] = result;
   }
 
-  function rol(adr) {
+  const rol = (adr) => {
     // rolls a memory location left 1, rolls C in, set C, Z and N
     let result = (read(adr) << 1) | (c ? 1 : 0);
     c = result > 0xff;
@@ -410,7 +406,7 @@ function Cpu(read, write, initialPC = 0) {
     write(adr, result);
   }
 
-  function lsra(adr) {
+  const lsra = (adr) => {
     // shifts A right 1, set C, Z and N
     let carry = r[A] & 0x1;
     let result = r[A] >> 1;
@@ -419,7 +415,7 @@ function Cpu(read, write, initialPC = 0) {
     r[A] = result;
   }
 
-  function lsr(adr) {
+  const lsr = (adr) => {
     // shifts a memory location right 1, set C, Z and N
     let value = read(adr);
     let carry = value & 0x1;
@@ -429,7 +425,7 @@ function Cpu(read, write, initialPC = 0) {
     write(adr, result);
   }
 
-  function rora(adr) {
+  const rora = (adr) => {
     // rolls A right 1, rolls C in, set C, Z and N
     let carry = r[A] & 0x1;
     let result = (r[A] >> 1) | ((c ? 1 : 0) << 7);
@@ -438,7 +434,7 @@ function Cpu(read, write, initialPC = 0) {
     r[A] = result;
   }
 
-  function ror(adr) {
+  const ror = (adr) => {
     // rolls a memory location right 1, rolls C in, set C, Z and N
     let value = read(adr);
     let carry = value & 0x1;
@@ -448,136 +444,136 @@ function Cpu(read, write, initialPC = 0) {
     write(adr, result);
   }
 
-  function lda(adr) {
+  const lda = (adr) => {
     // loads a value in a, sets Z and N
     r[A] = read(adr);
     setZandN(r[A]);
   }
 
-  function sta(adr) {
+  const sta = (adr) => {
     // stores a to a memory location
     write(adr, r[A]);
   }
 
-  function ldx(adr) {
+  const ldx = (adr) => {
     // loads x value in a, sets Z and N
     r[X] = read(adr);
     setZandN(r[X]);
   }
 
-  function stx(adr) {
+  const stx = (adr) => {
     // stores x to a memory location
     write(adr, r[X]);
   }
 
-  function ldy(adr) {
+  const ldy = (adr) => {
     // loads a value in y, sets Z and N
     r[Y] = read(adr);
     setZandN(r[Y]);
   }
 
-  function sty(adr) {
+  const sty = (adr) => {
     // stores y to a memory location
     write(adr, r[Y]);
   }
 
-  function tax(adr) {
+  const tax = (adr) => {
     // transfers a to x, sets Z and N
     r[X] = r[A];
     setZandN(r[X]);
   }
 
-  function txa(adr) {
+  const txa = (adr) => {
     // transfers x to a, sets Z and N
     r[A] = r[X];
     setZandN(r[A]);
   }
 
-  function tay(adr) {
+  const tay = (adr) => {
     // transfers a to y, sets Z and N
     r[Y] = r[A];
     setZandN(r[Y]);
   }
 
-  function tya(adr) {
+  const tya = (adr) => {
     // transfers y to a, sets Z and N
     r[A] = r[Y];
     setZandN(r[A]);
   }
 
-  function tsx(adr) {
+  const tsx = (adr) => {
     // transfers the stack pointer to x, sets Z and N
     r[X] = r[SP];
     setZandN(r[X]);
   }
 
-  function txs(adr) {
+  const txs = (adr) => {
     // transfers x to the stack pointer
     r[SP] = r[X];
   }
 
-  function pla(adr) {
+  const pla = (adr) => {
     // pulls a from the stack, sets Z and N
     r[A] = read(0x100 + ((++r[SP]) & 0xff));
     setZandN(r[A]);
   }
 
-  function pha(adr) {
+  const pha = (adr) => {
     // pushes a to the stack
     write(0x100 + r[SP]--, r[A]);
   }
 
-  function plp(adr) {
+  const plp = (adr) => {
     // pulls the flags from the stack
     setP(read(0x100 + ((++r[SP]) & 0xff)));
   }
 
-  function php(adr) {
+  const php = (adr) => {
     // pushes the flags to the stack
     write(0x100 + r[SP]--, getP(true));
   }
 
-  function bpl(adr) {
+  const bpl = (adr) => {
     // branches if N is 0
     doBranch(!n, adr);
   }
 
-  function bmi(adr) {
+  const bmi = (adr) => {
     // branches if N is 1
     doBranch(n, adr);
   }
 
-  function bvc(adr) {
+  const bvc = (adr) => {
     // branches if V is 0
     doBranch(!v, adr);
   }
 
-  function bvs(adr) {
+  const bvs = (adr) => {
     // branches if V is 1
     doBranch(v, adr);
   }
 
-  function bcc(adr) {
+  const bcc = (adr) => {
     // branches if C is 0
     doBranch(!c, adr);
   }
 
-  function bcs(adr) {
+  const bcs = (adr) => {
     // branches if C is 1
     doBranch(c, adr);
   }
 
-  function bne(adr) {
+  const bne = (adr) => {
     // branches if Z is 0
     doBranch(!z, adr);
   }
 
-  function beq(adr) {
+  const beq = (adr) => {
     // branches if Z is 1
     doBranch(z, adr);
   }
 
-  function brk(adr) {
+  const brk = (adr) => {
     // break to irq handler
     let pushPc = (br[PC] + 1) & 0xffff;
     write(0x100 + r[SP]--, pushPc >> 8);
@@ -587,7 +583,7 @@ function Cpu(read, write, initialPC = 0) {
     br[PC] = read(0xfffe) | (read(0xffff) << 8);
   }
 
-  function rti(adr) {
+  const rti = (adr) => {
     // return from interrupt
     setP(read(0x100 + ((++r[SP]) & 0xff)));
     let pullPc = read(0x100 + ((++r[SP]) & 0xff));
@@ -595,7 +591,7 @@ function Cpu(read, write, initialPC = 0) {
     br[PC] = pullPc;
   }
 
-  function jsr(adr) {
+  const jsr = (adr) => {
     // jump to subroutine
     let pushPc = (br[PC] - 1) & 0xffff;
     write(0x100 + r[SP]--, pushPc >> 8);
@@ -603,19 +599,19 @@ function Cpu(read, write, initialPC = 0) {
     br[PC] = adr;
   }
 
-  function rts(adr) {
+  const rts = (adr) => {
     // return from subroutine
     let pullPc = read(0x100 + ((++r[SP]) & 0xff));
     pullPc |= (read(0x100 + ((++r[SP]) & 0xff)) << 8);
     br[PC] = pullPc + 1;
   }
 
-  function jmp(adr) {
+  const jmp = (adr) => {
     // jump to address
     br[PC] = adr;
   }
 
-  function bit(adr) {
+  const bit = (adr) => {
     // bit test A with value, set N to b7, V to b6 and Z to result
     let value = read(adr);
     n = (value & 0x80) > 0;
@@ -624,46 +620,46 @@ function Cpu(read, write, initialPC = 0) {
     z = res === 0;
   }
 
-  function clc(adr) {
+  const clc = (adr) => {
     // clear carry flag
     c = false;
   }
 
-  function sec(adr) {
+  const sec = (adr) => {
     // set carry flag
     c = true;
   }
 
-  function cld(adr) {
+  const cld = (adr) => {
     // clear decimal flag
     d = false;
   }
 
-  function sed(adr) {
+  const sed = (adr) => {
     // set decimal flag
     d = true;
   }
 
-  function cli(adr) {
+  const cli = (adr) => {
     // clear interrupt flag
     i = false;
   }
 
-  function sei(adr) {
+  const sei = (adr) => {
     // set interrupt flag
     i = true;
   }
 
-  function clv(adr) {
+  const clv = (adr) => {
     // clear overflow flag
     v = false;
   }
 
-  function nop(adr) {
+  const nop = (adr) => {
     // no operation
   }
 
-  function irq(adr) {
+  const irq = (adr) => {
     // handle irq interrupt
     let pushPc = br[PC];
     write(0x100 + r[SP]--, pushPc >> 8);
@@ -673,7 +669,7 @@ function Cpu(read, write, initialPC = 0) {
     br[PC] = read(0xfffe) | (read(0xffff) << 8);
   }
 
-  function nmi(adr) {
+  const nmi = (adr) => {
     // handle nmi interrupt
     let pushPc = br[PC];
     write(0x100 + r[SP]--, pushPc >> 8);
@@ -685,12 +681,12 @@ function Cpu(read, write, initialPC = 0) {
 
   // undocumented opcodes
 
-  function kil(adr) {
+  const kil = (adr) => {
     // stopts the cpu
     br[PC]--;
   }
 
-  function slo(adr) {
+  const slo = (adr) => {
     // shifts a memory location left 1, ORs a with the result, sets N, Z and C
     let result = read(adr) << 1;
     c = result > 0xff;
@@ -699,7 +695,7 @@ function Cpu(read, write, initialPC = 0) {
     setZandN(r[A]);
   }
 
-  function rla(adr) {
+  const rla = (adr) => {
     // rolls a memory location left 1, ANDs a with the result, sets N, Z and C
     let result = (read(adr) << 1) | (c ? 1 : 0);
     c = result > 0xff;
@@ -708,7 +704,7 @@ function Cpu(read, write, initialPC = 0) {
     setZandN(r[A]);
   }
 
-  function sre(adr) {
+  const sre = (adr) => {
     // shifts a memory location right 1, XORs A with the result, sets N, Z and C
     let value = read(adr);
     let carry = value & 0x1;
@@ -719,7 +715,7 @@ function Cpu(read, write, initialPC = 0) {
     setZandN(r[A]);
   }
 
-  function rra(adr) {
+  const rra = (adr) => {
     // rolls a memory location right 1, adds the result to A, sets N, Z, C and V
     let value = read(adr);
     let carry = value & 0x1;
@@ -735,19 +731,19 @@ function Cpu(read, write, initialPC = 0) {
     setZandN(r[A]);
   }
 
-  function sax(adr) {
+  const sax = (adr) => {
     // stores A ANDed with X to a memory location
     write(adr, r[A] & r[X]);
   }
 
-  function lax(adr) {
+  const lax = (adr) => {
     // loads A and X with a value
     r[A] = read(adr);
     r[X] = r[A];
     setZandN(r[X]);
   }
 
-  function dcp(adr) {
+  const dcp = (adr) => {
     // decrement a memory location, and sets C, Z and N to what A - result does
     let value = (read(adr) - 1) & 0xff;
     write(adr, value);
@@ -757,7 +753,7 @@ function Cpu(read, write, initialPC = 0) {
     setZandN(result & 0xff);
   }
 
-  function isc(adr) {
+  const isc = (adr) => {
     // increments a memory location, and subtract it+!C from A, sets Z, N, V, C
     let value = (read(adr) + 1) & 0xff;
     write(adr, value);
@@ -772,14 +768,14 @@ function Cpu(read, write, initialPC = 0) {
     setZandN(r[A]);
   }
 
-  function anc(adr) {
+  const anc = (adr) => {
     // ANDs a with the value, sets Z and N, then sets C to N
     r[A] &= read(adr);
     setZandN(r[A]);
     c = n;
   }
 
-  function alr(adr) {
+  const alr = (adr) => {
     // ANDs a with the value, then shifts A right 1, sets C, Z and N
     r[A] &= read(adr);
     let carry = r[A] & 0x1;
@@ -789,7 +785,7 @@ function Cpu(read, write, initialPC = 0) {
     r[A] = result;
   }
 
-  function arr(adr) {
+  const arr = (adr) => {
     // ANDs a with the value, then rolls A right 1, sets Z, N, C and V oddly
     r[A] &= read(adr);
     let result = (r[A] >> 1) | ((c ? 1 : 0) << 7);
@@ -799,7 +795,7 @@ function Cpu(read, write, initialPC = 0) {
     r[A] = result;
   }
 
-  function axs(adr) {
+  const axs = (adr) => {
     // sets X to A ANDed with X minus the value, sets N, Z and C
     let value = read(adr) ^ 0xff;
     let andedA = r[A] & r[X];
@@ -809,7 +805,7 @@ function Cpu(read, write, initialPC = 0) {
     setZandN(r[X]);
   }
 
-  // function table
+  // const table
   const functions = [
     //x0  x1   x2   x3   x4   x5   x6   x7   x8   x9   xa   xb   xc   xd   xe   xf
     brk, ora, kil, slo, nop, ora, asl, slo, php, ora, asla, anc, nop, ora, asl, slo, //0x
@@ -831,15 +827,15 @@ function Cpu(read, write, initialPC = 0) {
     nmi, irq // 0x100: NMI, 0x101: IRQ
   ];
 
-  function requestNmi(wanted = true) {
+  const requestNmi = (wanted = true) => {
     nmiWanted = wanted;
   }
 
-  function requestIrq(wanted = true) {
+  const requestIrq = (wanted = true) => {
     irqWanted = wanted;
   }
 
-  function getPC() {
+  const getPC = () => {
     return br[PC];
   }
 

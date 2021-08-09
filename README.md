@@ -163,7 +163,6 @@ nes.mapper.ppuWrite(0x23c0, 0x34); // Writes a value to the PPU address-space
 // callbacks, these will be called during execution of nes.cycle() or nes.runFrame() when they are assigned a function
 nes.onread = (address, value) => {console.log(`read ${value} from ${address}`)};
 nes.onwrite = (address, value) => {console.log(`wrote ${value} to ${address}`)};
-nes.onexecute = (address, value) => {console.log(`executed from ${address} (opcode byte: ${value})`)};
 
 // more functions and properties are available, just checking the .js files themselves is probably the easiest way to see these
 ```

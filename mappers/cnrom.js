@@ -1,9 +1,7 @@
 
-mappers[3] = function(nes, rom, header) {
+mappers[3] = function(rom, header) {
   this.name = "CNROM";
   this.version = 1;
-
-  this.nes = nes;
 
   this.rom = rom;
 
