@@ -366,8 +366,11 @@ function Nes(rom, battery, log) {
   // ================= CPU ==================
   // {
   // registers
-  const registers = new Uint8Array([0, 0, 0, 0xfd]);
-  const counters = new Uint16Array([read(0xfffc) | (read(0xfffd) << 8)]);
+  let regA = 0;
+  let regX = 0;
+  let regY = 0;
+  let regSP = 0xfd;
+  let regPC = read(0xfffc) | (read(0xfffd) << 8);
 
   // flags
   let cN = false;
@@ -381,11 +384,9 @@ function Nes(rom, battery, log) {
   let cyclesLeft = 7;
 
   function cycleCpu() {
-
-
     if (cyclesLeft === 0) {
       // read the instruction byte and get the info
-      let instr = read(counters[PC]++);
+      let instr = read(regPC++);
       let mode = addressingModes[instr];
       let irqWanted = frameIrqWanted || dmcIrqWanted;
 
@@ -393,7 +394,7 @@ function Nes(rom, battery, log) {
       // test for wanting an interrupt
       if (nmiWanted || (irqWanted && !cI)) {
         // we want a interrupt, so push a special instuction type in instr
-        counters[PC]--;
+        regPC--;
         if (nmiWanted) {
           nmiWanted = false;
           instr = 0x100; // NMI
@@ -455,11 +456,11 @@ function Nes(rom, battery, log) {
     if (test) {
       // taken branch: 1 extra cycle
       cyclesLeft++;
-      if ((counters[PC] >> 8) !== ((counters[PC] + rel) >> 8)) {
+      if ((regPC >> 8) !== ((regPC + rel) >> 8)) {
         // taken branch across page: another extra cycle
         cyclesLeft++;
       }
-      counters[PC] += rel;
+      regPC += rel;
     }
   }
 
@@ -473,89 +474,89 @@ function Nes(rom, battery, log) {
       }
       case IMM: {
         // immediate
-        return counters[PC]++;
+        return regPC++;
       }
       case ZP: {
         // zero page
-        return read(counters[PC]++);
+        return read(regPC++);
       }
       case ZPX: {
         // zero page, indexed by x
-        let adr = read(counters[PC]++);
-        return (adr + registers[X]) & 0xff;
+        let adr = read(regPC++);
+        return (adr + regX) & 0xff;
       }
       case ZPY: {
         // zero page, indexed by y
-        let adr = read(counters[PC]++);
-        return (adr + registers[Y]) & 0xff;
+        let adr = read(regPC++);
+        return (adr + regY) & 0xff;
       }
       case IZX: {
         // zero page, indexed indirect by x
-        let adr = (read(counters[PC]++) + registers[X]) & 0xff;
+        let adr = (read(regPC++) + regX) & 0xff;
         return read(adr) | (read((adr + 1) & 0xff) << 8);
       }
       case IZY: {
         // zero page, indirect indexed by y (for RMW and writes)
-        let adr = read(counters[PC]++);
+        let adr = read(regPC++);
         let radr = read(adr) | (read((adr + 1) & 0xff) << 8);
-        return (radr + registers[Y]) & 0xffff;
+        return (radr + regY) & 0xffff;
       }
       case IZYr: {
         // zero page, indirect indexed by y (for reads)
-        let adr = read(counters[PC]++);
+        let adr = read(regPC++);
         let radr = read(adr) | (read((adr + 1) & 0xff) << 8);
-        if ((radr >> 8) < ((radr + registers[Y]) >> 8)) {
+        if ((radr >> 8) < ((radr + regY) >> 8)) {
           cyclesLeft++;
         }
-        return (radr + registers[Y]) & 0xffff;
+        return (radr + regY) & 0xffff;
       }
       case ABS: {
         // absolute
-        let adr = read(counters[PC]++);
-        adr |= (read(counters[PC]++) << 8);
+        let adr = read(regPC++);
+        adr |= (read(regPC++) << 8);
         return adr;
       }
       case ABX: {
         // absolute, indexed by x (for RMW and writes)
-        let adr = read(counters[PC]++);
-        adr |= (read(counters[PC]++) << 8);
-        return (adr + registers[X]) & 0xffff;
+        let adr = read(regPC++);
+        adr |= (read(regPC++) << 8);
+        return (adr + regX) & 0xffff;
       }
       case ABXr: {
         // absolute, indexed by x (for reads)
-        let adr = read(counters[PC]++);
-        adr |= (read(counters[PC]++) << 8);
-        if ((adr >> 8) < ((adr + registers[X]) >> 8)) {
+        let adr = read(regPC++);
+        adr |= (read(regPC++) << 8);
+        if ((adr >> 8) < ((adr + regX) >> 8)) {
           cyclesLeft++;
         }
-        return (adr + registers[X]) & 0xffff;
+        return (adr + regX) & 0xffff;
       }
       case ABY: {
         // absolute, indexed by y (for RMW and writes)
-        let adr = read(counters[PC]++);
-        adr |= (read(counters[PC]++) << 8);
-        return (adr + registers[Y]) & 0xffff;
+        let adr = read(regPC++);
+        adr |= (read(regPC++) << 8);
+        return (adr + regY) & 0xffff;
       }
       case ABYr: {
         // absolute, indexed by y (for reads)
-        let adr = read(counters[PC]++);
-        adr |= (read(counters[PC]++) << 8);
-        if ((adr >> 8) < ((adr + registers[Y]) >> 8)) {
+        let adr = read(regPC++);
+        adr |= (read(regPC++) << 8);
+        if ((adr >> 8) < ((adr + regY) >> 8)) {
           cyclesLeft++;
         }
-        return (adr + registers[Y]) & 0xffff;
+        return (adr + regY) & 0xffff;
       }
       case IND: {
         // indirect, doesn't loop pages properly
-        let adrl = read(counters[PC]++);
-        let adrh = read(counters[PC]++);
+        let adrl = read(regPC++);
+        let adrh = read(regPC++);
         let radr = read(adrl | (adrh << 8));
         radr |= (read(((adrl + 1) & 0xff) | (adrh << 8))) << 8;
         return radr;
       }
       case REL: {
         // relative to PC, for branches
-        let rel = read(counters[PC]++);
+        let rel = read(regPC++);
         return getSigned(rel);
       }
     }
@@ -570,52 +571,52 @@ function Nes(rom, battery, log) {
 
   function ora(adr) {
     // ORs A with the value, set Z and N
-    registers[A] |= read(adr);
-    setZandN(registers[A]);
+    regA |= read(adr);
+    setZandN(regA);
   }
 
   function and(adr) {
     // ANDs A with the value, set Z and N
-    registers[A] &= read(adr);
-    setZandN(registers[A]);
+    regA &= read(adr);
+    setZandN(regA);
   }
 
   function eor(adr) {
     // XORs A with the value, set Z and N
-    registers[A] ^= read(adr);
-    setZandN(registers[A]);
+    regA ^= read(adr);
+    setZandN(regA);
   }
 
   function adc(adr) {
     // adds the value + C to A, set C, V, Z and N
     let value = read(adr);
-    let result = registers[A] + value + (cC ? 1 : 0);
+    let result = regA + value + (cC ? 1 : 0);
     cC = result > 0xff;
     cV = (
-      (registers[A] & 0x80) === (value & 0x80) &&
+      (regA & 0x80) === (value & 0x80) &&
       (value & 0x80) !== (result & 0x80)
     );
-    registers[A] = result;
-    setZandN(registers[A]);
+    regA = result & 0xff;
+    setZandN(regA);
   }
 
   function sbc(adr) {
     // subtracts the value + !C from A, set C, V, Z and N
     let value = read(adr) ^ 0xff;
-    let result = registers[A] + value + (cC ? 1 : 0);
+    let result = regA + value + (cC ? 1 : 0);
     cC = result > 0xff;
     cV = (
-      (registers[A] & 0x80) === (value & 0x80) &&
+      (regA & 0x80) === (value & 0x80) &&
       (value & 0x80) !== (result & 0x80)
     );
-    registers[A] = result;
-    setZandN(registers[A]);
+    regA = result & 0xff;
+    setZandN(regA);
   }
 
   function cmp(adr) {
     // sets C, Z and N according to what A - value would do
     let value = read(adr) ^ 0xff;
-    let result = registers[A] + value + 1;
+    let result = regA + value + 1;
     cC = result > 0xff;
     setZandN(result & 0xff);
   }
@@ -623,7 +624,7 @@ function Nes(rom, battery, log) {
   function cpx(adr) {
     // sets C, Z and N according to what X - value would do
     let value = read(adr) ^ 0xff;
-    let result = registers[X] + value + 1;
+    let result = regX + value + 1;
     cC = result > 0xff;
     setZandN(result & 0xff);
   }
@@ -631,7 +632,7 @@ function Nes(rom, battery, log) {
   function cpy(adr) {
     // sets C, Z and N according to what Y - value would do
     let value = read(adr) ^ 0xff;
-    let result = registers[Y] + value + 1;
+    let result = regY + value + 1;
     cC = result > 0xff;
     setZandN(result & 0xff);
   }
@@ -645,14 +646,14 @@ function Nes(rom, battery, log) {
 
   function dex(adr) {
     // decrements X, set Z and N
-    registers[X]--;
-    setZandN(registers[X]);
+    regX = (regX - 1) & 0xff;
+    setZandN(regX);
   }
 
   function dey(adr) {
     // decrements Y, set Z and N
-    registers[Y]--;
-    setZandN(registers[Y]);
+    regY = (regY - 1) & 0xff;
+    setZandN(regY);
   }
 
   function inc(adr) {
@@ -664,22 +665,22 @@ function Nes(rom, battery, log) {
 
   function inx(adr) {
     // increments X, set Z and N
-    registers[X]++;
-    setZandN(registers[X]);
+    regX = (regX + 1) & 0xff;
+    setZandN(regX);
   }
 
   function iny(adr) {
     // increments Y, set Z and N
-    registers[Y]++;
-    setZandN(registers[Y]);
+    regY = (regY + 1) & 0xff;
+    setZandN(regY);
   }
 
   function asla(adr) {
     // shifts A left 1, set C, Z and N
-    let result = registers[A] << 1;
+    let result = regA << 1;
     cC = result > 0xff;
     setZandN(result);
-    registers[A] = result;
+    regA = result & 0xff;
   }
 
   function asl(adr) {
@@ -692,10 +693,10 @@ function Nes(rom, battery, log) {
 
   function rola(adr) {
     // rolls A left 1, rolls C in, set C, Z and N
-    let result = (registers[A] << 1) | (cC ? 1 : 0);
+    let result = (regA << 1) | (cC ? 1 : 0);
     cC = result > 0xff;
     setZandN(result);
-    registers[A] = result;
+    regA = result & 0xff;
   }
 
   function rol(adr) {
@@ -708,11 +709,11 @@ function Nes(rom, battery, log) {
 
   function lsra(adr) {
     // shifts A right 1, set C, Z and N
-    let carry = registers[A] & 0x1;
-    let result = registers[A] >> 1;
+    let carry = regA & 0x1;
+    let result = regA >> 1;
     cC = carry > 0;
     setZandN(result);
-    registers[A] = result;
+    regA = result;
   }
 
   function lsr(adr) {
@@ -727,11 +728,11 @@ function Nes(rom, battery, log) {
 
   function rora(adr) {
     // rolls A right 1, rolls C in, set C, Z and N
-    let carry = registers[A] & 0x1;
-    let result = (registers[A] >> 1) | ((cC ? 1 : 0) << 7);
+    let carry = regA & 0x1;
+    let result = (regA >> 1) | ((cC ? 1 : 0) << 7);
     cC = carry > 0;
     setZandN(result);
-    registers[A] = result;
+    regA = result;
   }
 
   function ror(adr) {
@@ -746,91 +747,91 @@ function Nes(rom, battery, log) {
 
   function lda(adr) {
     // loads a value in a, sets Z and N
-    registers[A] = read(adr);
-    setZandN(registers[A]);
+    regA = read(adr);
+    setZandN(regA);
   }
 
   function sta(adr) {
     // stores a to a memory location
-    write(adr, registers[A]);
+    write(adr, regA);
   }
 
   function ldx(adr) {
     // loads x value in a, sets Z and N
-    registers[X] = read(adr);
-    setZandN(registers[X]);
+    regX = read(adr);
+    setZandN(regX);
   }
 
   function stx(adr) {
     // stores x to a memory location
-    write(adr, registers[X]);
+    write(adr, regX);
   }
 
   function ldy(adr) {
     // loads a value in y, sets Z and N
-    registers[Y] = read(adr);
-    setZandN(registers[Y]);
+    regY = read(adr);
+    setZandN(regY);
   }
 
   function sty(adr) {
     // stores y to a memory location
-    write(adr, registers[Y]);
+    write(adr, regY);
   }
 
   function tax(adr) {
     // transfers a to x, sets Z and N
-    registers[X] = registers[A];
-    setZandN(registers[X]);
+    regX = regA;
+    setZandN(regX);
   }
 
   function txa(adr) {
     // transfers x to a, sets Z and N
-    registers[A] = registers[X];
-    setZandN(registers[A]);
+    regA = regX;
+    setZandN(regA);
   }
 
   function tay(adr) {
     // transfers a to y, sets Z and N
-    registers[Y] = registers[A];
-    setZandN(registers[Y]);
+    regY = regA;
+    setZandN(regY);
   }
 
   function tya(adr) {
     // transfers y to a, sets Z and N
-    registers[A] = registers[Y];
-    setZandN(registers[A]);
+    regA = regY;
+    setZandN(regA);
   }
 
   function tsx(adr) {
     // transfers the stack pointer to x, sets Z and N
-    registers[X] = registers[SP];
-    setZandN(registers[X]);
+    regX = regSP;
+    setZandN(regX);
   }
 
   function txs(adr) {
     // transfers x to the stack pointer
-    registers[SP] = registers[X];
+    regSP = regX;
   }
 
   function pla(adr) {
     // pulls a from the stack, sets Z and N
-    registers[A] = read(0x100 + ((++registers[SP]) & 0xff));
-    setZandN(registers[A]);
+    regA = read(0x100 + ((++regSP) & 0xff));
+    setZandN(regA);
   }
 
   function pha(adr) {
     // pushes a to the stack
-    write(0x100 + registers[SP]--, registers[A]);
+    write(0x100 + regSP--, regA);
   }
 
   function plp(adr) {
     // pulls the flags from the stack
-    setP(read(0x100 + ((++registers[SP]) & 0xff)));
+    setP(read(0x100 + ((++regSP) & 0xff)));
   }
 
   function php(adr) {
     // pushes the flags to the stack
-    write(0x100 + registers[SP]--, getP(true));
+    write(0x100 + regSP--, getP(true));
   }
 
   function bpl(adr) {
@@ -875,40 +876,40 @@ function Nes(rom, battery, log) {
 
   function brk(adr) {
     // break to irq handler
-    let pushPc = (counters[PC] + 1) & 0xffff;
-    write(0x100 + registers[SP]--, pushPc >> 8);
-    write(0x100 + registers[SP]--, pushPc & 0xff);
-    write(0x100 + registers[SP]--, getP(true));
+    let pushPc = (regPC + 1) & 0xffff;
+    write(0x100 + regSP--, pushPc >> 8);
+    write(0x100 + regSP--, pushPc & 0xff);
+    write(0x100 + regSP--, getP(true));
     cI = true;
-    counters[PC] = read(0xfffe) | (read(0xffff) << 8);
+    regPC = read(0xfffe) | (read(0xffff) << 8);
   }
 
   function rti(adr) {
     // return from interrupt
-    setP(read(0x100 + ((++registers[SP]) & 0xff)));
-    let pullPc = read(0x100 + ((++registers[SP]) & 0xff));
-    pullPc |= (read(0x100 + ((++registers[SP]) & 0xff)) << 8);
-    counters[PC] = pullPc;
+    setP(read(0x100 + ((++regSP) & 0xff)));
+    let pullPc = read(0x100 + ((++regSP) & 0xff));
+    pullPc |= (read(0x100 + ((++regSP) & 0xff)) << 8);
+    regPC = pullPc;
   }
 
   function jsr(adr) {
     // jump to subroutine
-    let pushPc = (counters[PC] - 1) & 0xffff;
-    write(0x100 + registers[SP]--, pushPc >> 8);
-    write(0x100 + registers[SP]--, pushPc & 0xff);
-    counters[PC] = adr;
+    let pushPc = (regPC - 1) & 0xffff;
+    write(0x100 + regSP--, pushPc >> 8);
+    write(0x100 + regSP--, pushPc & 0xff);
+    regPC = adr;
   }
 
   function rts(adr) {
     // return from subroutine
-    let pullPc = read(0x100 + ((++registers[SP]) & 0xff));
-    pullPc |= (read(0x100 + ((++registers[SP]) & 0xff)) << 8);
-    counters[PC] = pullPc + 1;
+    let pullPc = read(0x100 + ((++regSP) & 0xff));
+    pullPc |= (read(0x100 + ((++regSP) & 0xff)) << 8);
+    regPC = pullPc + 1;
   }
 
   function jmp(adr) {
     // jump to address
-    counters[PC] = adr;
+    regPC = adr;
   }
 
   function bit(adr) {
@@ -916,7 +917,7 @@ function Nes(rom, battery, log) {
     let value = read(adr);
     cN = (value & 0x80) > 0;
     cV = (value & 0x40) > 0;
-    let res = registers[A] & value;
+    let res = regA & value;
     cZ = res === 0;
   }
 
@@ -961,29 +962,29 @@ function Nes(rom, battery, log) {
 
   function irq(adr) {
     // handle irq interrupt
-    let pushPc = counters[PC];
-    write(0x100 + registers[SP]--, pushPc >> 8);
-    write(0x100 + registers[SP]--, pushPc & 0xff);
-    write(0x100 + registers[SP]--, getP(false));
+    let pushPc = regPC;
+    write(0x100 + regSP--, pushPc >> 8);
+    write(0x100 + regSP--, pushPc & 0xff);
+    write(0x100 + regSP--, getP(false));
     cI = true;
-    counters[PC] = read(0xfffe) | (read(0xffff) << 8);
+    regPC = read(0xfffe) | (read(0xffff) << 8);
   }
 
   function nmi(adr) {
     // handle nmi interrupt
-    let pushPc = counters[PC];
-    write(0x100 + registers[SP]--, pushPc >> 8);
-    write(0x100 + registers[SP]--, pushPc & 0xff);
-    write(0x100 + registers[SP]--, getP(false));
+    let pushPc = regPC;
+    write(0x100 + regSP--, pushPc >> 8);
+    write(0x100 + regSP--, pushPc & 0xff);
+    write(0x100 + regSP--, getP(false));
     cI = true;
-    counters[PC] = read(0xfffa) | (read(0xfffb) << 8);
+    regPC = read(0xfffa) | (read(0xfffb) << 8);
   }
 
   // undocumented opcodes
 
   function kil(adr) {
     // stopts the cpu
-    counters[PC]--;
+    regPC--;
   }
 
   function slo(adr) {
@@ -991,8 +992,8 @@ function Nes(rom, battery, log) {
     let result = read(adr) << 1;
     cC = result > 0xff;
     write(adr, result);
-    registers[A] |= result;
-    setZandN(registers[A]);
+    regA |= result;
+    setZandN(regA);
   }
 
   function rla(adr) {
@@ -1000,8 +1001,8 @@ function Nes(rom, battery, log) {
     let result = (read(adr) << 1) | (cC ? 1 : 0);
     cC = result > 0xff;
     write(adr, result);
-    registers[A] &= result;
-    setZandN(registers[A]);
+    regA &= result;
+    setZandN(regA);
   }
 
   function sre(adr) {
@@ -1011,8 +1012,8 @@ function Nes(rom, battery, log) {
     let result = value >> 1;
     cC = carry > 0;
     write(adr, result);
-    registers[A] ^= result;
-    setZandN(registers[A]);
+    regA ^= result;
+    setZandN(regA);
   }
 
   function rra(adr) {
@@ -1021,26 +1022,26 @@ function Nes(rom, battery, log) {
     let carry = value & 0x1;
     let result = (value >> 1) | ((cC ? 1 : 0) << 7);
     write(adr, result);
-    let addResult = registers[A] + result + carry;
+    let addResult = regA + result + carry;
     cC = addResult > 0xff;
     cV = (
-      (registers[A] & 0x80) === (result & 0x80) &&
+      (regA & 0x80) === (result & 0x80) &&
       (result & 0x80) !== (addResult & 0x80)
     );
-    registers[A] = addResult;
-    setZandN(registers[A]);
+    regA = addResult & 0xff;
+    setZandN(regA);
   }
 
   function sax(adr) {
     // stores A ANDed with X to a memory location
-    write(adr, registers[A] & registers[X]);
+    write(adr, regA & regX);
   }
 
   function lax(adr) {
     // loads A and X with a value
-    registers[A] = read(adr);
-    registers[X] = registers[A];
-    setZandN(registers[X]);
+    regA = read(adr);
+    regX = regA;
+    setZandN(regX);
   }
 
   function dcp(adr) {
@@ -1048,7 +1049,7 @@ function Nes(rom, battery, log) {
     let value = (read(adr) - 1) & 0xff;
     write(adr, value);
     value ^= 0xff;
-    let result = registers[A] + value + 1;
+    let result = regA + value + 1;
     cC = result > 0xff;
     setZandN(result & 0xff);
   }
@@ -1058,51 +1059,51 @@ function Nes(rom, battery, log) {
     let value = (read(adr) + 1) & 0xff;
     write(adr, value);
     value ^= 0xff;
-    let result = registers[A] + value + (cC ? 1 : 0);
+    let result = regA + value + (cC ? 1 : 0);
     cC = result > 0xff;
     cV = (
-      (registers[A] & 0x80) === (value & 0x80) &&
+      (regA & 0x80) === (value & 0x80) &&
       (value & 0x80) !== (result & 0x80)
     );
-    registers[A] = result;
-    setZandN(registers[A]);
+    regA = result;
+    setZandN(regA);
   }
 
   function anc(adr) {
     // ANDs a with the value, sets Z and N, then sets C to N
-    registers[A] &= read(adr);
-    setZandN(registers[A]);
+    regA &= read(adr);
+    setZandN(regA);
     cC = cN;
   }
 
   function alr(adr) {
     // ANDs a with the value, then shifts A right 1, sets C, Z and N
-    registers[A] &= read(adr);
-    let carry = registers[A] & 0x1;
-    let result = registers[A] >> 1;
+    regA &= read(adr);
+    let carry = regA & 0x1;
+    let result = regA >> 1;
     cC = carry > 0;
     setZandN(result);
-    registers[A] = result;
+    regA = result;
   }
 
   function arr(adr) {
     // ANDs a with the value, then rolls A right 1, sets Z, N, C and V oddly
-    registers[A] &= read(adr);
-    let result = (registers[A] >> 1) | ((cC ? 1 : 0) << 7);
+    regA &= read(adr);
+    let result = (regA >> 1) | ((cC ? 1 : 0) << 7);
     setZandN(result);
     cC = (result & 0x40) > 0;
     cV = ((result & 0x40) ^ ((result & 0x20) << 1)) > 0;
-    registers[A] = result;
+    regA = result;
   }
 
   function axs(adr) {
     // sets X to A ANDed with X minus the value, sets N, Z and C
     let value = read(adr) ^ 0xff;
-    let andedA = registers[A] & registers[X];
+    let andedA = regA & regX;
     let result = andedA + value + 1;
     cC = result > 0xff;
-    registers[X] = result;
-    setZandN(registers[X]);
+    regX = result & 0xff;
+    setZandN(regX);
   }
 
   // function table
@@ -1460,6 +1461,7 @@ function Nes(rom, battery, log) {
       pV++;
     }
   }
+
   function incrementVy() {
     if ((pV & 0x7000) !== 0x7000) {
       pV += 0x1000;
@@ -1510,66 +1512,43 @@ function Nes(rom, battery, log) {
   }
 
   function readPpu(adr) {
-    switch (adr) {
-      case 0: {
-        // PPUCTRL
-        return 0; // not readable
+    if (adr === 2) {
+      // PPUSTATUS
+      pW = 0;
+      let ret = 0;
+      if (inVblank) {
+        ret |= 0x80;
+        inVblank = false;
       }
-      case 1: {
-        // PPUMASK
-        return 0; // not readable
+      ret |= spriteZero ? 0x40 : 0;
+      ret |= spriteOverflow ? 0x20 : 0;
+      return ret;
+    } else if (adr === 4) {
+      // OAMDATA
+      return oamRam[oamAddress];
+    } else if (adr === 7) {
+      // PPUDATA
+      let adr = pV & 0x3fff;
+      if (
+        (bgRendering || sprRendering) &&
+        (line < 240 || line === 261)
+      ) {
+        // while rendering, vram is incremented strangely
+        incrementVy();
+        incrementVx();
+      } else {
+        pV += vramIncrement;
+        pV &= 0x7fff;
       }
-      case 2: {
-        // PPUSTATUS
-        pW = 0;
-        let ret = 0;
-        if (inVblank) {
-          ret |= 0x80;
-          inVblank = false;
-        }
-        ret |= spriteZero ? 0x40 : 0;
-        ret |= spriteOverflow ? 0x20 : 0;
-        return ret;
+      let temp = readBuffer;
+      if (adr >= 0x3f00) {
+        // read palette in temp
+        temp = readPalette(adr);
       }
-      case 3: {
-        // OAMADDR
-        return 0; // not readable
-      }
-      case 4: {
-        // OAMDATA
-        return oamRam[oamAddress];
-      }
-      case 5: {
-        // PPUSCROLL
-        return 0; // not readable
-      }
-      case 6: {
-        // PPUADDR
-        return 0; // not readable
-      }
-      case 7: {
-        // PPUDATA
-        let adr = pV & 0x3fff;
-        if (
-          (bgRendering || sprRendering) &&
-          (line < 240 || line === 261)
-        ) {
-          // while rendering, vram is incremented strangely
-          incrementVy();
-          incrementVx();
-        } else {
-          pV += vramIncrement;
-          pV &= 0x7fff;
-        }
-        let temp = readBuffer;
-        if (adr >= 0x3f00) {
-          // read palette in temp
-          temp = readPalette(adr);
-        }
-        readBuffer = readInternal(adr);
-        return temp;
-      }
+      readBuffer = readInternal(adr);
+      return temp;
     }
+    return 0;
   }
 
   function writePpu(adr, value) {
