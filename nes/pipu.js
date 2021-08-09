@@ -47,7 +47,6 @@ function Ppu(requestNmi, ppuWrite, ppuRead) {
   let spritePatternBase = 0;
   let bgPatternBase = 0;
   let spriteHeight = 8;
-  let slave = false;
   let generateNmi = false;
 
   // for PPUMASK
@@ -501,7 +500,7 @@ function Ppu(requestNmi, ppuWrite, ppuRead) {
         bgPatternBase = (value & 0x10) > 0 ? 0x1000 : 0;
         spriteHeight = (value & 0x20) > 0 ? 16 : 8;
         let oldNmi = generateNmi;
-        slave = (value & 0x40) > 0;
+        // slave = (value & 0x40) > 0;
         generateNmi = (value & 0x80) > 0;
 
         if (generateNmi && !oldNmi && inVblank) {
