@@ -1,3 +1,4 @@
+
 // duty cycles
 const dutyCycles = [
   [0, 1, 0, 0, 0, 0, 0, 0],
@@ -151,38 +152,435 @@ function parseHeader(rom, log) {
   }
 }
 
-function Nes(rom, battery, log) {
+function Nes(
+  { rom, battery, log },
+  [
+    // ================= NES ==================
+    [
+      // global
+      frameIrqWanted = false,
+      dmcIrqWanted = false,
+      nmiWanted = false,
+      line = 0,
+      dot = 0,
+      ram = new Uint8Array(0x800),
+
+      // cycle timer, to sync cpu/ppu
+      cycleTimer = 0,
+
+      // oam dma
+      inDma = false,
+      dmaTimer = 0,
+      dmaBase = 0,
+      dmaValue = 0,
+
+      // controllers
+      latchedControl1State = 0,
+      latchedControl2State = 0,
+      controllerLatched = false,
+    ],
+    // ================= CPU ==================
+    [
+      // registers
+      regA = 0,
+      regX = 0,
+      regY = 0,
+      regSP = 0xfd,
+      regPC = undefined,
+
+      // flags
+      cN = false,
+      cV = false,
+      cD = false,
+      cI = true,
+      cZ = false,
+      cC = false,
+
+      // cycles left
+      cyclesLeft = 7,
+    ],
+    // ================= PPU ==================
+    [
+      // nametable memory stored in mapper to simplify code
+
+      // palette memory
+      paletteRam = new Uint8Array(0x20),
+
+      // oam memory
+      oamRam = new Uint8Array(0x100),
+
+      // sprite buffers
+      secondaryOam = new Uint8Array(0x20),
+      spriteTiles = new Uint8Array(0x10),
+
+      // final pixel output
+      pixelOutput = new Uint16Array(256 * 240),
+
+      // scrolling / vram address
+      pT = 0, // temporary vram address
+      pV = 0, // vram address
+      pW = 0, // write flag
+      pX = 0, // fine x scroll
+
+      // dot position
+      evenFrame = true,
+
+      // rest
+      oamAddress = 0, // oam address
+      readBuffer = 0, // 2007 buffer;
+
+      // for PPUSTAUS
+      spriteZero = false,
+      spriteOverflow = false,
+      inVblank = false,
+
+      // for PPUCTRL
+      vramIncrement = 1,
+      spritePatternBase = 0,
+      bgPatternBase = 0,
+      spriteHeight = 8,
+      generateNmi = false,
+
+      // for PPUMASK
+      greyScale = false,
+      bgInLeft = false,
+      sprInLeft = false,
+      bgRendering = false,
+      sprRendering = false,
+      emphasis = 0,
+
+      // internal operation
+      atl = 0,
+      atr = 0,
+      tl = 0,
+      th = 0,
+      spriteZeroIn = false,
+      spriteCount = 0,
+    ],
+    // ================= APU ==================
+    [
+      // channel outputs
+      output = new Float64Array(29781),
+
+      outputOffset = 0,
+
+      frameCounter = 0,
+
+      interruptInhibit = false,
+      step5Mode = false,
+
+      enableNoise = false,
+      enableTriangle = false,
+      enablePulse2 = false,
+      enablePulse1 = false,
+
+      // pulse 1
+      p1Timer = 0,
+      p1TimerValue = 0,
+      p1Duty = 0,
+      p1DutyIndex = 0,
+      p1Output = 0,
+      p1CounterHalt = false,
+      p1Counter = 0,
+      p1Volume = 0,
+      p1ConstantVolume = false,
+      p1Decay = 0,
+      p1EnvelopeCounter = 0,
+      p1EnvelopeStart = false,
+      p1SweepEnabled = false,
+      p1SweepPeriod = 0,
+      p1SweepNegate = false,
+      p1SweepShift = 0,
+      p1SweepTimer = 0,
+      p1SweepTarget = 0,
+      p1SweepMuting = true,
+      p1SweepReload = false,
+
+      // pulse 2
+      p2Timer = 0,
+      p2TimerValue = 0,
+      p2Duty = 0,
+      p2DutyIndex = 0,
+      p2Output = 0,
+      p2CounterHalt = false,
+      p2Counter = 0,
+      p2Volume = 0,
+      p2ConstantVolume = false,
+      p2Decay = 0,
+      p2EnvelopeCounter = 0,
+      p2EnvelopeStart = false,
+      p2SweepEnabled = false,
+      p2SweepPeriod = 0,
+      p2SweepNegate = false,
+      p2SweepShift = 0,
+      p2SweepTimer = 0,
+      p2SweepTarget = 0,
+      p2SweepMuting = true,
+      p2SweepReload = false,
+
+      // triangle
+      triTimer = 0,
+      triTimerValue = 0,
+      triStepIndex = 0,
+      triOutput = 0,
+      triCounterHalt = false,
+      triCounter = 0,
+      triLinearCounter = 0,
+      triReloadLinear = false,
+      triLinearReload = 0,
+
+      // noise
+      noiseTimer = 0,
+      noiseTimerValue = 0,
+      noiseShift = 1,
+      noiseTonal = false,
+      noiseOutput = 0,
+      noiseCounterHalt = false,
+      noiseCounter = 0,
+      noiseVolume = 0,
+      noiseConstantVolume = false,
+      noiseDecay = 0,
+      noiseEnvelopeCounter = 0,
+      noiseEnvelopeStart = false,
+
+      // dmc
+      dmcInterrupt = false,
+      dmcLoop = false,
+      dmcTimer = 0,
+      dmcTimerValue = 0,
+      dmcOutput = 0,
+      dmcSampleAddress = 0xc000,
+      dmcAddress = 0xc000,
+      dmcSample = 0,
+      dmcSampleLength = 0,
+      dmcSampleEmpty = true,
+      dmcBytesLeft = 0,
+      dmcShifter = 0,
+      dmcBitsLeft = 8,
+      dmcSilent = true,
+    ],
+  ] = [[], [], [], []]
+) {
   const mapper = parseHeader(rom, log);
 
   if (!mapper) return false;
 
-  // ================ GLOBAL ================
-  // irq sources
-  let frameIrqWanted = false;
-  let dmcIrqWanted = false;
-  let nmiWanted = false;
+  if (regPC === undefined) {
+    regPC = read(0xfffc) | (read(0xfffd) << 8);
+  }
 
-  // dot position
-  let line = 0;
-  let dot = 0;
+  // // ================ GLOBAL ================
+  // // irq sources
+  // let frameIrqWanted = false;
+  // let dmcIrqWanted = false;
+  // let nmiWanted = false;
+
+  // // dot position
+  // let line = 0;
+  // let dot = 0;
+
+  // // ================= NES ==================
+  // let ram = new Uint8Array(0x800);
+
+  // // cycle timer, to sync cpu/ppu
+  // let cycleTimer = 0;
+
+  // // oam dma
+  // let inDma = false;
+  // let dmaTimer = 0;
+  // let dmaBase = 0;
+  // let dmaValue = 0;
+
+  // // controllers
+  // let latchedControl1State = 0;
+  // let latchedControl2State = 0;
+  // let controllerLatched = false;
+
+  // // ================= CPU ==================
+  // // registers
+  // let regA = 0;
+  // let regX = 0;
+  // let regY = 0;
+  // let regSP = 0xfd;
+  // let regPC = read(0xfffc) | (read(0xfffd) << 8);
+
+  // // flags
+  // let cN = false;
+  // let cV = false;
+  // let cD = false;
+  // let cI = true;
+  // let cZ = false;
+  // let cC = false;
+
+  // // cycles left
+  // let cyclesLeft = 7;
+
+  // // ================= PPU ==================
+  // // nametable memory stored in mapper to simplify code
+
+  // // palette memory
+  // const paletteRam = new Uint8Array(0x20);
+
+  // // oam memory
+  // const oamRam = new Uint8Array(0x100);
+
+  // // sprite buffers
+  // const secondaryOam = new Uint8Array(0x20);
+  // const spriteTiles = new Uint8Array(0x10);
+
+  // // final pixel output
+  // const pixelOutput = new Uint16Array(256 * 240);
+
+  // // scrolling / vram address
+  // let pT = 0; // temporary vram address
+  // let pV = 0; // vram address
+  // let pW = 0; // write flag
+  // let pX = 0; // fine x scroll
+
+  // // dot position
+  // let evenFrame = true;
+
+  // // rest
+  // let oamAddress = 0; // oam address
+  // let readBuffer = 0; // 2007 buffer;
+
+  // // for PPUSTAUS
+  // let spriteZero = false;
+  // let spriteOverflow = false;
+  // let inVblank = false;
+
+  // // for PPUCTRL
+  // let vramIncrement = 1;
+  // let spritePatternBase = 0;
+  // let bgPatternBase = 0;
+  // let spriteHeight = 8;
+  // let generateNmi = false;
+
+  // // for PPUMASK
+  // let greyScale = false;
+  // let bgInLeft = false;
+  // let sprInLeft = false;
+  // let bgRendering = false;
+  // let sprRendering = false;
+  // let emphasis = 0;
+
+  // // internal operation
+  // let atl = 0;
+  // let atr = 0;
+  // let tl = 0;
+  // let th = 0;
+  // let spriteZeroIn = false;
+  // let spriteCount = 0;
+
+  // // ================= APU ==================
+  // // channel outputs
+  // const output = new Float64Array(29781);
+
+  // let outputOffset = 0;
+
+  // let frameCounter = 0;
+
+  // let interruptInhibit = false;
+  // let step5Mode = false;
+
+  // let enableNoise = false;
+  // let enableTriangle = false;
+  // let enablePulse2 = false;
+  // let enablePulse1 = false;
+
+  // // pulse 1
+  // let p1Timer = 0;
+  // let p1TimerValue = 0;
+  // let p1Duty = 0;
+  // let p1DutyIndex = 0;
+  // let p1Output = 0;
+  // let p1CounterHalt = false;
+  // let p1Counter = 0;
+  // let p1Volume = 0;
+  // let p1ConstantVolume = false;
+  // let p1Decay = 0;
+  // let p1EnvelopeCounter = 0;
+  // let p1EnvelopeStart = false;
+  // let p1SweepEnabled = false;
+  // let p1SweepPeriod = 0;
+  // let p1SweepNegate = false;
+  // let p1SweepShift = 0;
+  // let p1SweepTimer = 0;
+  // let p1SweepTarget = 0;
+  // let p1SweepMuting = true;
+  // let p1SweepReload = false;
+
+  // // pulse 2
+  // let p2Timer = 0;
+  // let p2TimerValue = 0;
+  // let p2Duty = 0;
+  // let p2DutyIndex = 0;
+  // let p2Output = 0;
+  // let p2CounterHalt = false;
+  // let p2Counter = 0;
+  // let p2Volume = 0;
+  // let p2ConstantVolume = false;
+  // let p2Decay = 0;
+  // let p2EnvelopeCounter = 0;
+  // let p2EnvelopeStart = false;
+  // let p2SweepEnabled = false;
+  // let p2SweepPeriod = 0;
+  // let p2SweepNegate = false;
+  // let p2SweepShift = 0;
+  // let p2SweepTimer = 0;
+  // let p2SweepTarget = 0;
+  // let p2SweepMuting = true;
+  // let p2SweepReload = false;
+
+  // // triangle
+  // let triTimer = 0;
+  // let triTimerValue = 0;
+  // let triStepIndex = 0;
+  // let triOutput = 0;
+  // let triCounterHalt = false;
+  // let triCounter = 0;
+  // let triLinearCounter = 0;
+  // let triReloadLinear = false;
+  // let triLinearReload = 0;
+
+  // // noise
+  // let noiseTimer = 0;
+  // let noiseTimerValue = 0;
+  // let noiseShift = 1;
+  // let noiseTonal = false;
+  // let noiseOutput = 0;
+  // let noiseCounterHalt = false;
+  // let noiseCounter = 0;
+  // let noiseVolume = 0;
+  // let noiseConstantVolume = false;
+  // let noiseDecay = 0;
+  // let noiseEnvelopeCounter = 0;
+  // let noiseEnvelopeStart = false;
+
+  // // dmc
+  // let dmcInterrupt = false;
+  // let dmcLoop = false;
+  // let dmcTimer = 0;
+  // let dmcTimerValue = 0;
+  // let dmcOutput = 0;
+  // let dmcSampleAddress = 0xc000;
+  // let dmcAddress = 0xc000;
+  // let dmcSample = 0;
+  // let dmcSampleLength = 0;
+  // let dmcSampleEmpty = true;
+  // let dmcBytesLeft = 0;
+  // let dmcShifter = 0;
+  // let dmcBitsLeft = 8;
+  // let dmcSilent = true;
+
+
+
+
+
+
+
 
   // ================= NES ==================
-  // {
-  let ram = new Uint8Array(0x800);
-
-  // cycle timer, to sync cpu/ppu
-  let cycleTimer = 0;
-
-  // oam dma
-  let inDma = false;
-  let dmaTimer = 0;
-  let dmaBase = 0;
-  let dmaValue = 0;
-
-  // controllers
-  let latchedControl1State = 0;
-  let latchedControl2State = 0;
-  let controllerLatched = false;
 
   function getPixels(pixelsOut) {
     for (let i = 0; i < pixelOutput.length; i++) {
@@ -361,27 +759,9 @@ function Nes(rom, battery, log) {
     }
     return undefined;
   }
-  // }
+
 
   // ================= CPU ==================
-  // {
-  // registers
-  let regA = 0;
-  let regX = 0;
-  let regY = 0;
-  let regSP = 0xfd;
-  let regPC = read(0xfffc) | (read(0xfffd) << 8);
-
-  // flags
-  let cN = false;
-  let cV = false;
-  let cD = false;
-  let cI = true;
-  let cZ = false;
-  let cC = false;
-
-  // cycles left
-  let cyclesLeft = 7;
 
   function cycleCpu() {
     if (cyclesLeft === 0) {
@@ -1127,65 +1507,8 @@ function Nes(rom, battery, log) {
     beq, sbc, kil, isc, nop, sbc, inc, isc, sed, sbc, nop, isc, nop, sbc, inc, isc, //fx
     nmi, irq // 0x100: NMI, 0x101: IRQ
   ];
-  // }
 
   // ================= PPU ==================
-  // {
-  // nametable memory stored in mapper to simplify code
-
-  // palette memory
-  const paletteRam = new Uint8Array(0x20);
-
-  // oam memory
-  const oamRam = new Uint8Array(0x100);
-
-  // sprite buffers
-  const secondaryOam = new Uint8Array(0x20);
-  const spriteTiles = new Uint8Array(0x10);
-
-  // final pixel output
-  const pixelOutput = new Uint16Array(256 * 240);
-
-  // scrolling / vram address
-  let pT = 0; // temporary vram address
-  let pV = 0; // vram address
-  let pW = 0; // write flag
-  let pX = 0; // fine x scroll
-
-  // dot position
-  let evenFrame = true;
-
-  // rest
-  let oamAddress = 0; // oam address
-  let readBuffer = 0; // 2007 buffer;
-
-  // for PPUSTAUS
-  let spriteZero = false;
-  let spriteOverflow = false;
-  let inVblank = false;
-
-  // for PPUCTRL
-  let vramIncrement = 1;
-  let spritePatternBase = 0;
-  let bgPatternBase = 0;
-  let spriteHeight = 8;
-  let generateNmi = false;
-
-  // for PPUMASK
-  let greyScale = false;
-  let bgInLeft = false;
-  let sprInLeft = false;
-  let bgRendering = false;
-  let sprRendering = false;
-  let emphasis = 0;
-
-  // internal operation
-  let atl = 0;
-  let atr = 0;
-  let tl = 0;
-  let th = 0;
-  let spriteZeroIn = false;
-  let spriteCount = 0;
 
   function cyclePpu() {
     if (line < 240) {
@@ -1650,109 +1973,9 @@ function Nes(rom, battery, log) {
       }
     }
   }
-  // }
+
 
   // ================= APU ==================
-  // {
-  // channel outputs
-  const output = new Float64Array(29781);
-
-  let outputOffset = 0;
-
-  let frameCounter = 0;
-
-  let interruptInhibit = false;
-  let step5Mode = false;
-
-  let enableNoise = false;
-  let enableTriangle = false;
-  let enablePulse2 = false;
-  let enablePulse1 = false;
-
-  // pulse 1
-  let p1Timer = 0;
-  let p1TimerValue = 0;
-  let p1Duty = 0;
-  let p1DutyIndex = 0;
-  let p1Output = 0;
-  let p1CounterHalt = false;
-  let p1Counter = 0;
-  let p1Volume = 0;
-  let p1ConstantVolume = false;
-  let p1Decay = 0;
-  let p1EnvelopeCounter = 0;
-  let p1EnvelopeStart = false;
-  let p1SweepEnabled = false;
-  let p1SweepPeriod = 0;
-  let p1SweepNegate = false;
-  let p1SweepShift = 0;
-  let p1SweepTimer = 0;
-  let p1SweepTarget = 0;
-  let p1SweepMuting = true;
-  let p1SweepReload = false;
-
-  // pulse 2
-  let p2Timer = 0;
-  let p2TimerValue = 0;
-  let p2Duty = 0;
-  let p2DutyIndex = 0;
-  let p2Output = 0;
-  let p2CounterHalt = false;
-  let p2Counter = 0;
-  let p2Volume = 0;
-  let p2ConstantVolume = false;
-  let p2Decay = 0;
-  let p2EnvelopeCounter = 0;
-  let p2EnvelopeStart = false;
-  let p2SweepEnabled = false;
-  let p2SweepPeriod = 0;
-  let p2SweepNegate = false;
-  let p2SweepShift = 0;
-  let p2SweepTimer = 0;
-  let p2SweepTarget = 0;
-  let p2SweepMuting = true;
-  let p2SweepReload = false;
-
-  // triangle
-  let triTimer = 0;
-  let triTimerValue = 0;
-  let triStepIndex = 0;
-  let triOutput = 0;
-  let triCounterHalt = false;
-  let triCounter = 0;
-  let triLinearCounter = 0;
-  let triReloadLinear = false;
-  let triLinearReload = 0;
-
-  // noise
-  let noiseTimer = 0;
-  let noiseTimerValue = 0;
-  let noiseShift = 1;
-  let noiseTonal = false;
-  let noiseOutput = 0;
-  let noiseCounterHalt = false;
-  let noiseCounter = 0;
-  let noiseVolume = 0;
-  let noiseConstantVolume = false;
-  let noiseDecay = 0;
-  let noiseEnvelopeCounter = 0;
-  let noiseEnvelopeStart = false;
-
-  // dmc
-  let dmcInterrupt = false;
-  let dmcLoop = false;
-  let dmcTimer = 0;
-  let dmcTimerValue = 0;
-  let dmcOutput = 0;
-  let dmcSampleAddress = 0xc000;
-  let dmcAddress = 0xc000;
-  let dmcSample = 0;
-  let dmcSampleLength = 0;
-  let dmcSampleEmpty = true;
-  let dmcBytesLeft = 0;
-  let dmcShifter = 0;
-  let dmcBitsLeft = 8;
-  let dmcSilent = true;
 
   function cycleApu() {
     if (
@@ -2224,7 +2447,215 @@ function Nes(rom, battery, log) {
       }
     }
   }
-  // }
+
+  function readState() {
+    return [
+      // ================= NES ==================
+      [
+        // global
+        frameIrqWanted,
+        dmcIrqWanted,
+        nmiWanted,
+        line,
+        dot,
+        ram,
+
+        // cycle timer, to sync cpu/ppu
+        cycleTimer,
+
+        // oam dma
+        inDma,
+        dmaTimer,
+        dmaBase,
+        dmaValue,
+
+        // controllers
+        latchedControl1State,
+        latchedControl2State,
+        controllerLatched,
+      ],
+      // ================= CPU ==================
+      [
+        // registers
+        regA,
+        regX,
+        regY,
+        regSP,
+        regPC,
+
+        // flags
+        cN,
+        cV,
+        cD,
+        cI,
+        cZ,
+        cC,
+
+        // cycles left
+        cyclesLeft,
+      ],
+      // ================= PPU ==================
+      [
+        // nametable memory stored in mapper to simplify code
+
+        // palette memory
+        paletteRam,
+
+        // oam memory
+        oamRam,
+
+        // sprite buffers
+        secondaryOam,
+        spriteTiles,
+
+        // final pixel output
+        pixelOutput,
+
+        // scrolling / vram address
+        pT, // temporary vram address
+        pV, // vram address
+        pW, // write flag
+        pX, // fine x scroll
+
+        // dot position
+        evenFrame,
+
+        // rest
+        oamAddress, // oam address
+        readBuffer, // 2007 buffer;
+
+        // for PPUSTAUS
+        spriteZero,
+        spriteOverflow,
+        inVblank,
+
+        // for PPUCTRL
+        vramIncrement,
+        spritePatternBase,
+        bgPatternBase,
+        spriteHeight,
+        generateNmi,
+
+        // for PPUMASK
+        greyScale,
+        bgInLeft,
+        sprInLeft,
+        bgRendering,
+        sprRendering,
+        emphasis,
+
+        // internal operation
+        at,
+        atr,
+        tl,
+        th,
+        spriteZeroIn,
+        spriteCount,
+      ],
+      // ================= APU ==================
+      [
+        // channel outputs
+        output,
+
+        outputOffset,
+
+        frameCounter,
+
+        interruptInhibit,
+        step5Mode,
+
+        enableNoise,
+        enableTriangle,
+        enablePulse2,
+        enablePulse1,
+
+        // pulse 1
+        p1Timer,
+        p1TimerValue,
+        p1Duty,
+        p1DutyIndex,
+        p1Output,
+        p1CounterHalt,
+        p1Counter,
+        p1Volume,
+        p1ConstantVolume,
+        p1Decay,
+        p1EnvelopeCounter,
+        p1EnvelopeStart,
+        p1SweepEnabled,
+        p1SweepPeriod,
+        p1SweepNegate,
+        p1SweepShift,
+        p1SweepTimer,
+        p1SweepTarget,
+        p1SweepMuting,
+        p1SweepReload,
+
+        // pulse 2
+        p2Timer,
+        p2TimerValue,
+        p2Duty,
+        p2DutyIndex,
+        p2Output,
+        p2CounterHalt,
+        p2Counter,
+        p2Volume,
+        p2ConstantVolume,
+        p2Decay,
+        p2EnvelopeCounter,
+        p2EnvelopeStart,
+        p2SweepEnabled,
+        p2SweepPeriod,
+        p2SweepNegate,
+        p2SweepShift,
+        p2SweepTimer,
+        p2SweepTarget,
+        p2SweepMuting,
+        p2SweepReload,
+
+        // triangle
+        triTimer,
+        triTimerValue,
+        triStepIndex,
+        triOutput,
+        triCounterHalt,
+        triCounter,
+        triLinearCounter,
+        triReloadLinear,
+        triLinearReload,
+
+        // noise
+        noiseTimer,
+        noiseTimerValue,
+        noiseShift,
+        noiseTonal,
+        noiseOutput,
+        noiseCounterHalt,
+        noiseCounter,
+        noiseVolume,
+        noiseConstantVolume,
+        noiseDecay,
+        noiseEnvelopeCounter,
+        noiseEnvelopeStart,
+
+        // dmc
+        dmcInterrupt,
+        dmcLoop,
+        dmcTimer,
+        dmcTimerValue,
+        dmcOutput,
+        dmcSampleAddres,
+        dmcAddress,
+        dmcSample,
+        dmcSampleLength,
+        dmcSampleEmpty,
+        dmcBytesLeft,
+        dmcShifter,
+        dmcBitsLeft = 8,
+        dmcSilent,
+      ],
+    ]
+  }
 
   return {
     runFrame,

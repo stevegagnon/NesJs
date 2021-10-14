@@ -146,10 +146,10 @@ function loadRom(rom, name) {
   saveBatteryForRom();
   let data = localStorage.getItem(name + "_battery");
   const battery = data ? JSON.parse(data) : null;
-  nes = Nes(rom, battery, log);
+  nes = Nes({ rom, battery, log });
 
   console.log(nes);
-  
+
   if (nes) {
     if (!loaded && !paused) {
       loopId = requestAnimationFrame(update);
